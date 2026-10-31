@@ -16,6 +16,7 @@ import java.io.File
 
 class PodcastApplication : Application() {
     val repository: PodcastRepository by lazy { PodcastRepository(this) }
+
 }
 
 class PodcastRepository(private val context: Context) {
@@ -35,6 +36,7 @@ class PodcastRepository(private val context: Context) {
     suspend fun subscribe(candidate: PodcastCandidate): Unit = withContext(Dispatchers.IO) {
         val feed = directory.fetchFeed(candidate.podcast.feedUrl)
         mutex.withLock { store.saveFeed(feed); publish() }
+        processAutomaticDownloads()
     }
 
     suspend fun refresh(): List<String> = withContext(Dispatchers.IO) {
@@ -45,6 +47,7 @@ class PodcastRepository(private val context: Context) {
                 mutex.withLock { store.saveFeed(feed); publish() }
             } catch (_: java.io.IOException) { failed += podcast.title }
         }
+        processAutomaticDownloads()
         failed
     }
 
@@ -58,10 +61,12 @@ class PodcastRepository(private val context: Context) {
             store.unsubscribe(podcast.feedUrl)
             publish()
         }
+        configureBackgroundSync()
     }
 
-    suspend fun download(episode: Episode): Unit = withContext(Dispatchers.IO) {
+    suspend fun download(episode: Episode, automatic: Boolean = false): Unit = withContext(Dispatchers.IO) {
         mutex.withLock {
+            if (automatic && (episode.id !in store.automaticDownloadIds() || store.progress(episode.id).completed)) return@withLock
             val existing = downloads()[episode.id]
             if (existing != null && existing.status != DownloadStatus.Failed) return@withLock
             store.downloadIds()[episode.id]?.let { manager.remove(it) }
@@ -79,6 +84,7 @@ class PodcastRepository(private val context: Context) {
 
     suspend fun removeDownload(episode: Episode): Unit = withContext(Dispatchers.IO) {
         mutex.withLock {
+            store.cancelAutomaticDownload(episode.id)
             store.downloadIds()[episode.id]?.let { manager.remove(it) }
             downloadFile(episode.id)?.delete()
             store.removeDownload(episode.id)
@@ -86,14 +92,74 @@ class PodcastRepository(private val context: Context) {
         }
     }
 
-    suspend fun updateProgress(id: String, progress: ListeningProgress): Unit = withContext(Dispatchers.IO) {
-        mutex.withLock { store.saveProgress(id, progress); publish() }
+    suspend fun updateProgress(id: String, progress: ListeningProgress, resetCompletion: Boolean = false): Unit = withContext(Dispatchers.IO) {
+        mutex.withLock { store.saveProgress(id, progress, resetCompletion); publish() }
+    }
+
+    suspend fun saveQueue(id: String, name: String, episodeId: String? = null): Unit = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (episodeId != null) require(!store.progress(episodeId).completed) { "再生済みのエピソードは、未再生に戻してから追加してください。" }
+            store.saveQueue(id, name)
+            if (episodeId != null) store.addToQueue(id, episodeId)
+            publish()
+        }
+    }
+    suspend fun deleteQueue(id: String): Unit = withContext(Dispatchers.IO) {
+        mutex.withLock { store.deleteQueue(id); publish() }
+        configureBackgroundSync()
+    }
+    suspend fun setQueueMembership(queueId: String, episodeId: String, included: Boolean): Unit = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (included) {
+                require(!store.progress(episodeId).completed) { "再生済みのエピソードは、未再生に戻してから追加してください。" }
+                store.addToQueue(queueId, episodeId)
+            } else store.removeFromQueue(queueId, episodeId)
+            publish()
+        }
+    }
+    suspend fun moveInQueue(queueId: String, episodeId: String, direction: Int): Unit = withContext(Dispatchers.IO) { mutex.withLock { store.moveInQueue(queueId, episodeId, direction); publish() } }
+    suspend fun saveRule(rule: QueueRule, applyExisting: Boolean): Unit = withContext(Dispatchers.IO) {
+        mutex.withLock { store.saveRule(rule, applyExisting); publish() }
+        configureBackgroundSync()
+        processAutomaticDownloads()
+    }
+    suspend fun deleteRule(queueId: String, feedUrl: String): Unit = withContext(Dispatchers.IO) {
+        mutex.withLock { store.deleteRule(queueId, feedUrl); publish() }
+        configureBackgroundSync()
+    }
+    suspend fun setAutoDownload(feedUrl: String, enabled: Boolean): Unit = withContext(Dispatchers.IO) {
+        mutex.withLock { store.setAutoDownload(feedUrl, enabled); publish() }
+        configureBackgroundSync()
+    }
+
+    suspend fun configureBackgroundSync(): Unit = withContext(Dispatchers.IO) { PodcastSyncJob.schedule(context, store.needsBackgroundSync()) }
+
+    suspend fun processAutomaticDownloads(): Unit = withContext(Dispatchers.IO) {
+        for (id in store.automaticDownloadIds()) {
+            val episode = store.episode(id)
+            val library = store.library()
+            val eligible = episode != null && !store.progress(id).completed &&
+                (episode.feedUrl in library.autoDownloadFeeds || library.queueRules.any { rule -> rule.autoDownload && rule.matches(episode) && library.queues.any { it.id == rule.queueId && id in it.episodeIds } })
+            if (!eligible || downloads()[id]?.status == DownloadStatus.Complete) {
+                mutex.withLock { store.cancelAutomaticDownload(id) }
+                continue
+            }
+            try { download(requireNotNull(episode), automatic = true) }
+            catch (_: IllegalArgumentException) { /* Keep the durable request for a later retry. */ }
+            catch (_: SecurityException) { /* Storage can become available again later. */ }
+        }
+        configureBackgroundSync()
     }
 
     fun audioUri(episode: Episode): Uri {
         val file = downloadFile(episode.id)
-        val state = downloads()[episode.id]
-        return if (state?.status == DownloadStatus.Complete && file?.isFile == true) Uri.fromFile(file) else episode.audioUrl.toUri()
+        if (file?.isFile != true) return episode.audioUrl.toUri()
+        if (mutableLibrary.value.downloads[episode.id]?.status == DownloadStatus.Complete) return Uri.fromFile(file)
+        val managerId = store.downloadId(episode.id) ?: return episode.audioUrl.toUri()
+        val complete = manager.query(DownloadManager.Query().setFilterById(managerId)).use { cursor ->
+            cursor.moveToFirst() && cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_SUCCESSFUL
+        }
+        return if (complete) Uri.fromFile(file) else episode.audioUrl.toUri()
     }
 
     private fun publish(): Unit { mutableLibrary.value = store.library().copy(downloads = downloads()) }

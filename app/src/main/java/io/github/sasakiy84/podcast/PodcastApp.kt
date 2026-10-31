@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,7 +40,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-private enum class HomeTab(val label: String) { Library("ポッドキャスト"), Episodes("エピソード"), Search("検索") }
+private enum class HomeTab(val label: String) { Library("ポッドキャスト"), Episodes("エピソード"), Queues("キュー"), Search("検索") }
 private enum class EpisodeFilter(val label: String) { All("すべて"), Unplayed("未再生"), Downloaded("ダウンロード") }
 
 @Composable
@@ -51,6 +52,7 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
         var tab by rememberSaveable { mutableStateOf(HomeTab.Library) }
         var selectedFeed by rememberSaveable { mutableStateOf<String?>(null) }
         var playerExpanded by rememberSaveable { mutableStateOf(false) }
+        var queueEpisode by rememberSaveable { mutableStateOf<String?>(null) }
         var episodeDetails by rememberSaveable { mutableStateOf<String?>(null) }
         var unsubscribe by remember { mutableStateOf<Podcast?>(null) }
         val selected = state.library.podcasts.firstOrNull { it.feedUrl == selectedFeed }
@@ -86,8 +88,8 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                     NavigationBar {
                         HomeTab.entries.forEach { item ->
                             NavigationBarItem(modifier = Modifier.semantics { contentDescription = "タブ: ${item.label}" }, selected = tab == item, onClick = { tab = item; selectedFeed = null },
-                                icon = { Icon(when (item) { HomeTab.Library -> Icons.Default.LibraryMusic; HomeTab.Episodes -> Icons.Default.Headphones; HomeTab.Search -> Icons.Default.Search }, null) },
-                                label = { Text(item.label) })
+                                icon = { Icon(when (item) { HomeTab.Library -> Icons.Default.LibraryMusic; HomeTab.Episodes -> Icons.Default.Headphones; HomeTab.Queues -> Icons.AutoMirrored.Filled.QueueMusic; HomeTab.Search -> Icons.Default.Search }, null) },
+                                label = { Text(if (item == HomeTab.Library) "番組" else item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) })
                         }
                     }
                 }
@@ -98,6 +100,7 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                     selected != null -> PodcastDetails(selected, state, onAction) { episodeDetails = it.id }
                     tab == HomeTab.Library -> PodcastLibrary(state.library.podcasts, { selectedFeed = it.feedUrl }, { tab = HomeTab.Search })
                     tab == HomeTab.Episodes -> EpisodesPage(state, onAction) { episodeDetails = it.id }
+                    tab == HomeTab.Queues -> PlaybackQueuesPage(state, onAction) { episodeDetails = it.id }
                     else -> SearchPage(state, onAction)
                 }
             }
@@ -113,6 +116,7 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                             DownloadButton(episode, state.library.downloads[episode.id], onAction)
                         }
                     }
+                    item { OutlinedButton(onClick = { queueEpisode = episode.id; episodeDetails = null }, modifier = Modifier.fillMaxWidth()) { Text("キューに追加・編集") } }
                     item { Text(episode.description.ifBlank { "このエピソードには説明がありません。" }, style = MaterialTheme.typography.bodyLarge) }
                     item {
                         val completed = state.library.progress[episode.id]?.completed == true
@@ -120,6 +124,9 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                     }
                 }
             }
+        }
+        state.library.episodes.firstOrNull { it.id == queueEpisode }?.let { episode ->
+            QueueMembershipDialog(episode, state.library, onAction) { queueEpisode = null }
         }
         unsubscribe?.let { podcast ->
             AlertDialog(onDismissRequest = { unsubscribe = null }, title = { Text("購読を解除しますか？") },
@@ -162,6 +169,15 @@ private fun PodcastDetails(podcast: Podcast, state: PodcastUiState, action: (Pod
             }
         }
         if (podcast.description.isNotBlank()) item { Text(podcast.description, style = MaterialTheme.typography.bodyMedium, maxLines = 6, overflow = TextOverflow.Ellipsis) }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("新着を自動ダウンロード", style = MaterialTheme.typography.titleSmall)
+                    Text("設定後の新着が対象です。約1時間ごとに確認します。", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = podcast.feedUrl in state.library.autoDownloadFeeds, onCheckedChange = { action(PodcastAction.AutoDownloadFeed(podcast.feedUrl, it)) })
+            }
+        }
         item { Text("エピソード", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
         if (episodes.isEmpty()) item { Text("公開されている音声エピソードはありません。") }
         items(episodes, key = { it.id }) { EpisodeCard(it, podcast, state, action, details) }
@@ -189,10 +205,10 @@ private fun EpisodesPage(state: PodcastUiState, action: (PodcastAction) -> Unit,
 }
 
 @Composable
-private fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiState, action: (PodcastAction) -> Unit, details: (Episode) -> Unit): Unit {
+internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiState, action: (PodcastAction) -> Unit, details: (Episode) -> Unit): Unit {
     val progress = state.library.progress[episode.id]
     val playing = state.playback.episodeId == episode.id && state.playback.playing
-    OutlinedCard(onClick = { details(episode) }, modifier = Modifier.fillMaxWidth()) {
+    OutlinedCard(onClick = { details(episode) }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "エピソード詳細: ${episode.title}" }) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Cover(episode.artwork.ifBlank { podcast?.artwork.orEmpty() }, podcast?.title ?: episode.title, Modifier.size(52.dp))

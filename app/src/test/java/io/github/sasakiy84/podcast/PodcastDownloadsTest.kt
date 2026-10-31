@@ -43,6 +43,37 @@ class PodcastDownloadsTest {
     }
 
     @Test
+    fun automaticDownloadsUseOneSharedRequestAndManualRemovalPreventsRedownloading(): Unit = runBlocking {
+        repository.store.saveQueue("news", "ニュース")
+        repository.store.saveQueue("tech", "技術")
+        repository.saveRule(QueueRule("news", podcast.feedUrl, autoDownload = true), true)
+        val id = requireNotNull(repository.store.downloadIds()[episode.id])
+        val request: ShadowDownloadManager.ShadowRequest = Shadow.extract(shadowOf(manager).getRequest(id))
+        request.setStatus(DownloadManager.STATUS_PENDING)
+        repository.saveRule(QueueRule("tech", podcast.feedUrl, autoDownload = true), true)
+        assertEquals(id, repository.store.downloadIds()[episode.id])
+        assertEquals(1, shadowOf(manager).requestCount)
+        repository.removeDownload(episode)
+        repository.processAutomaticDownloads()
+        assertTrue(repository.store.downloadIds().isEmpty())
+        assertTrue(repository.store.automaticDownloadIds().isEmpty())
+    }
+
+    @Test
+    fun completedEpisodeLeavesAllQueuesButKeepsDownloadedAudio(): Unit = runBlocking {
+        repository.store.saveQueue("news", "ニュース")
+        repository.store.saveQueue("tech", "技術")
+        repository.store.addToQueue("news", episode.id); repository.store.addToQueue("tech", episode.id)
+        repository.download(episode)
+        file.parentFile?.mkdirs(); file.writeBytes(byteArrayOf(1, 2, 3))
+        repository.updateProgress(episode.id, ListeningProgress(100, 100, true))
+        assertTrue(repository.store.queueEpisodeIds("news").isEmpty())
+        assertTrue(repository.store.queueEpisodeIds("tech").isEmpty())
+        assertTrue(file.exists())
+        assertNotNull(repository.store.downloadIds()[episode.id])
+    }
+
+    @Test
     fun duplicateRequestsDoNotStartTwoDownloads(): Unit = runBlocking {
         repository.download(episode)
         val id = requireNotNull(repository.store.downloadIds()[episode.id])

@@ -27,11 +27,37 @@ data class PodcastCandidate(val podcast: Podcast, val source: String = "Apple Po
 data class ListeningProgress(val positionMs: Long = 0, val durationMs: Long = 0, val completed: Boolean = false)
 enum class DownloadStatus { Waiting, Running, Complete, Failed }
 data class EpisodeDownload(val managerId: Long, val status: DownloadStatus, val percent: Int = 0)
+data class PlaybackQueue(val id: String, val name: String, val episodeIds: List<String> = emptyList())
+data class QueueRule(
+    val queueId: String,
+    val feedUrl: String,
+    val includeWords: String = "",
+    val excludeWords: String = "",
+    val matchAll: Boolean = false,
+    val autoDownload: Boolean = false,
+    val enabled: Boolean = true,
+) {
+    fun matches(episode: Episode): Boolean {
+        if (!enabled || episode.feedUrl != feedUrl) return false
+        val text = normalize("${episode.title}\n${episode.description}")
+        val required = words(includeWords)
+        if (words(excludeWords).any(text::contains)) return false
+        return required.isEmpty() || if (matchAll) required.all(text::contains) else required.any(text::contains)
+    }
+
+    companion object {
+        private fun normalize(value: String): String = java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFKC).lowercase(java.util.Locale.ROOT)
+        private fun words(value: String): List<String> = value.split(',', '，', '、', '\n').map { normalize(it.trim()) }.filter { it.isNotEmpty() }.distinct()
+    }
+}
 data class Library(
     val podcasts: List<Podcast> = emptyList(),
     val episodes: List<Episode> = emptyList(),
     val progress: Map<String, ListeningProgress> = emptyMap(),
     val downloads: Map<String, EpisodeDownload> = emptyMap(),
+    val queues: List<PlaybackQueue> = emptyList(),
+    val queueRules: List<QueueRule> = emptyList(),
+    val autoDownloadFeeds: Set<String> = emptySet(),
 )
 
 class PodcastException(message: String) : java.io.IOException(message)

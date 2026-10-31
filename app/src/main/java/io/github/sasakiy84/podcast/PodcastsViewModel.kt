@@ -3,6 +3,7 @@ package io.github.sasakiy84.podcast
 import android.app.Application
 import android.content.ComponentName
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.PlaybackException
@@ -44,6 +45,14 @@ sealed interface PodcastAction {
     data class Resolve(val url: String) : PodcastAction
     data class Subscribe(val candidate: PodcastCandidate) : PodcastAction
     data class Unsubscribe(val podcast: Podcast) : PodcastAction
+    data class SaveQueue(val id: String, val name: String, val episodeId: String? = null) : PodcastAction
+    data class DeleteQueue(val id: String) : PodcastAction
+    data class QueueMembership(val queueId: String, val episodeId: String, val included: Boolean) : PodcastAction
+    data class MoveQueueEpisode(val queueId: String, val episodeId: String, val direction: Int) : PodcastAction
+    data class SaveQueueRule(val rule: QueueRule, val applyExisting: Boolean) : PodcastAction
+    data class DeleteQueueRule(val queueId: String, val feedUrl: String) : PodcastAction
+    data class AutoDownloadFeed(val feedUrl: String, val enabled: Boolean) : PodcastAction
+    data class PlayQueue(val queueId: String, val episodeId: String? = null) : PodcastAction
     data class Play(val episode: Episode) : PodcastAction
     data class Seek(val positionMs: Long) : PodcastAction
     data class Skip(val milliseconds: Long) : PodcastAction
@@ -69,7 +78,7 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
     init {
         viewModelScope.launch { repository.library.collect { library -> mutableState.update { it.copy(library = library) } } }
         viewModelScope.launch {
-            runOperation { repository.load() }
+            runOperation { repository.load(); repository.configureBackgroundSync() }
             if (repository.library.value.podcasts.isNotEmpty()) refresh()
             while (true) {
                 delay(2000)
@@ -115,6 +124,14 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
                     repository.unsubscribe(action.podcast)
                 }
             }.let { }
+            is PodcastAction.SaveQueue -> viewModelScope.launch { runOperation { repository.saveQueue(action.id, action.name, action.episodeId) } }.let { }
+            is PodcastAction.DeleteQueue -> viewModelScope.launch { runOperation { repository.deleteQueue(action.id) } }.let { }
+            is PodcastAction.QueueMembership -> viewModelScope.launch { runOperation { repository.setQueueMembership(action.queueId, action.episodeId, action.included) } }.let { }
+            is PodcastAction.MoveQueueEpisode -> viewModelScope.launch { runOperation { repository.moveInQueue(action.queueId, action.episodeId, action.direction) } }.let { }
+            is PodcastAction.SaveQueueRule -> viewModelScope.launch { runOperation { repository.saveRule(action.rule, action.applyExisting) } }.let { }
+            is PodcastAction.DeleteQueueRule -> viewModelScope.launch { runOperation { repository.deleteRule(action.queueId, action.feedUrl) } }.let { }
+            is PodcastAction.AutoDownloadFeed -> viewModelScope.launch { runOperation { repository.setAutoDownload(action.feedUrl, action.enabled) } }.let { }
+            is PodcastAction.PlayQueue -> playQueue(action.queueId, action.episodeId)
             is PodcastAction.Play -> play(action.episode)
             is PodcastAction.Seek -> controller?.seekTo(action.positionMs.coerceAtLeast(0)) ?: Unit
             is PodcastAction.Skip -> controller?.let { it.seekTo((it.currentPosition + action.milliseconds).coerceIn(0, it.duration.takeIf { d -> d > 0 } ?: Long.MAX_VALUE)) } ?: Unit
@@ -134,18 +151,10 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             } }.let { }
             is PodcastAction.MarkPlayed -> viewModelScope.launch {
                 val old = state.value.library.progress[action.episode.id] ?: ListeningProgress()
-                runOperation { repository.updateProgress(action.episode.id, old.copy(completed = action.completed, positionMs = if (action.completed) old.durationMs else 0)) }
+                runOperation { repository.updateProgress(action.episode.id, old.copy(completed = action.completed, positionMs = if (action.completed) old.durationMs else 0), resetCompletion = true) }
             }.let { }
             PodcastAction.Refresh -> if (!state.value.refreshing) viewModelScope.launch { refresh() }.let { }
-            PodcastAction.TogglePlayback -> controller?.let { player ->
-                if (player.playbackState == Player.STATE_ENDED) {
-                    player.seekTo(0)
-                    player.play()
-                } else if (player.playWhenReady) player.pause() else {
-                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
-                    player.play()
-                }
-            } ?: Unit
+            PodcastAction.TogglePlayback -> togglePlayback()
             PodcastAction.ClearMessage -> mutableState.update { it.copy(message = null) }
         }
     }
@@ -174,16 +183,45 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
         } } finally { mutableState.update { it.copy(refreshing = false) } }
     }
 
+    private fun togglePlayback(): Unit {
+        val player = controller ?: return
+        if (player.playbackState == Player.STATE_ENDED) {
+            viewModelScope.launch { runOperation {
+                player.currentMediaItem?.mediaId?.let { repository.updateProgress(it, ListeningProgress(), resetCompletion = true) }
+                player.seekTo(0); player.play()
+            } }
+        } else if (player.playWhenReady) player.pause() else {
+            if (player.playbackState == Player.STATE_IDLE) player.prepare()
+            player.play()
+        }
+    }
+
     private fun play(episode: Episode): Unit {
         val player = controller ?: return
-        if (player.currentMediaItem?.mediaId == episode.id) {
-            dispatch(PodcastAction.TogglePlayback)
-            return
-        }
-        val progress = state.value.library.progress[episode.id] ?: ListeningProgress()
-        player.setMediaItem(episode.mediaItem(repository), if (progress.completed) 0 else progress.positionMs)
-        player.prepare()
-        player.play()
+        if (player.currentMediaItem?.mediaId == episode.id) { togglePlayback(); return }
+        viewModelScope.launch { runOperation {
+            val progress = state.value.library.progress[episode.id] ?: ListeningProgress()
+            if (progress.completed) repository.updateProgress(episode.id, ListeningProgress(), resetCompletion = true)
+            repository.preferences.edit { remove("active_queue") }
+            player.setMediaItem(episode.mediaItem(repository), if (progress.completed) 0 else progress.positionMs)
+            player.prepare(); player.play()
+        } }
+    }
+
+    private fun playQueue(queueId: String, episodeId: String?): Unit {
+        val player = controller ?: return
+        val library = state.value.library
+        val queue = library.queues.firstOrNull { it.id == queueId } ?: return
+        val episodes = queue.episodeIds.mapNotNull { id -> library.episodes.firstOrNull { it.id == id } }.filter { library.progress[it.id]?.completed != true }
+        if (episodes.isEmpty()) return
+        val current = player.currentMediaItem?.mediaId
+        val sameQueue = repository.preferences.getString("active_queue", null) == queueId
+        if (episodeId != null && current == episodeId && (sameQueue || player.playWhenReady)) { togglePlayback(); return }
+        val target = episodeId ?: current.takeIf { sameQueue }
+        val index = episodes.indexOfFirst { it.id == target }.coerceAtLeast(0)
+        repository.preferences.edit { putString("active_queue", queueId) }
+        player.setMediaItems(episodes.map { it.mediaItem(repository) }, index, if (episodes[index].id == current) player.currentPosition.coerceAtLeast(0) else library.progress[episodes[index].id]?.positionMs ?: 0)
+        player.prepare(); player.play()
     }
 
     private fun updatePlayback(): Unit {
@@ -199,7 +237,7 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
         catch (error: java.io.IOException) { error.message ?: "通信できませんでした。接続状態を確認してください。" }
         catch (_: org.json.JSONException) { "配信元の情報を読み取れませんでした。時間を置いて再試行してください。" }
         catch (_: android.database.SQLException) { "端末への保存に失敗しました。空き容量を確認してください。" }
-        catch (_: IllegalArgumentException) { "URL またはダウンロード先を確認してください。" }
+        catch (error: IllegalArgumentException) { error.message ?: "入力内容を確認してください。" }
         catch (_: SecurityException) { "ダウンロードを開始できません。端末のストレージ設定を確認してください。" }
         if (failure != null) mutableState.update { it.copy(message = failure) }
         return failure

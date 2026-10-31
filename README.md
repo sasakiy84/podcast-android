@@ -1,14 +1,14 @@
 # Podcast Android
 
-アカウント不要、購読情報・再生履歴・音声を端末内で管理する個人用ポッドキャストアプリです。
+Android 16 以降向け、購読・再生履歴・音声を端末内で管理する個人用ポッドキャストアプリです。
 
-- Apple Podcasts の番組検索、RSS / Atom の登録
-- Apple Podcasts・Spotify・Amazon Music・Pocket Casts の番組URLから登録（RSS を直接取得できない場合は候補を確認）
-- バックグラウンド再生、再生位置の復元、15秒戻し／30秒送り、0.5〜3倍速
-- 音声のダウンロード・削除、オフライン再生、未再生の絞り込み
+- Apple Podcasts 検索、RSS / Atom、主要プラットフォームの番組URLから登録
+- テーマ別の複数キュー、並べ替え、連続再生。同じ回を複数登録でき、再生完了時に全キューから削除
+- 番組の新着をキーワード・除外語で振り分け。含む語は「どれか／すべて」を指定可能
+- 番組単位・キューのルール単位の自動ダウンロード、オフライン再生、0.5〜3倍速
 
-RSS のない独占配信は登録できません。検索・番組更新・ストリーミング時には配信元へ通信します。プレイリスト・レコメンド・クラウド同期はありません。
+新着チェックは約1時間ごと（OSの制御で遅れる場合があります）。手動更新も可能です。設定前の未再生分は、ルール設定時に選んだ場合だけ追加します。音声ファイルは全キューで共有し、キューから外しても消しません。
 
-Android 16（API 36）以降に対応。JDK 21 / Android SDK 36。`./gradlew testDebugUnitTest lintDebug assembleDebug` で検証できます。クラウドでは先に `source /workspace/.android-dev/env.sh` を実行します。
+アカウント・レコメンド・クラウド同期はありません。RSS 非公開の独占配信は非対応です。
 
-署名とタグによるリリースは [docs/releasing.md](docs/releasing.md) を参照してください。
+JDK 21 / Android SDK 36。クラウドでは `source /workspace/.android-dev/env.sh` の後、`./gradlew testDebugUnitTest lintDebug assembleDebug` で検証できます。署名とリリースは [docs/releasing.md](docs/releasing.md) を参照してください。

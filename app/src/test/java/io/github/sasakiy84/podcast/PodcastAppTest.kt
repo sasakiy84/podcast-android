@@ -156,6 +156,55 @@ class PodcastAppTest {
         screenshot("library-dark")
     }
 
+    @Test
+    fun queueCreationAndPlaybackAreAvailableFromTheQueueTab(): Unit {
+        val actions = mutableListOf<PodcastAction>()
+        val withQueues = state.copy(library = library.copy(queues = listOf(PlaybackQueue("news", "ニュース", listOf(episode.id)))))
+        compose.setContent { PodcastApp(withQueues, actions::add) }
+        compose.onNodeWithContentDescription("タブ: キュー").performClick()
+        compose.onNodeWithText("キューを作成").performClick()
+        compose.onNodeWithText("キュー名").performTextInput("英語学習")
+        compose.onNodeWithText("保存").performClick()
+        assertEquals("英語学習", (actions.last() as PodcastAction.SaveQueue).name)
+        compose.onNodeWithText("ニュース").performClick()
+        compose.onNodeWithText("キューを再生").performClick()
+        assertEquals(PodcastAction.PlayQueue("news"), actions.last())
+        screenshot("queue")
+    }
+
+    @Test
+    fun anEpisodeCanBeAddedToTwoQueuesFromItsDetails(): Unit {
+        val actions = mutableListOf<PodcastAction>()
+        val withQueues = state.copy(library = library.copy(queues = listOf(PlaybackQueue("news", "ニュース"), PlaybackQueue("english", "英語学習"))))
+        compose.setContent { PodcastApp(withQueues, actions::add) }
+        compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performClick()
+        compose.onNodeWithText("キューに追加・編集").performClick()
+        compose.onAllNodes(isToggleable())[0].performClick()
+        compose.onAllNodes(isToggleable())[1].performClick()
+        assertEquals(listOf(PodcastAction.QueueMembership("news", episode.id, true), PodcastAction.QueueMembership("english", episode.id, true)), actions.filterIsInstance<PodcastAction.QueueMembership>())
+    }
+
+    @Test
+    fun queueRuleEditorSavesKeywordsAndAutomaticDownload(): Unit {
+        val actions = mutableListOf<PodcastAction>()
+        compose.setContent { PodcastApp(state.copy(library = library.copy(queues = listOf(PlaybackQueue("tech", "技術")))) , actions::add) }
+        compose.onNodeWithContentDescription("タブ: キュー").performClick()
+        compose.onNodeWithText("技術").performClick()
+        compose.onNodeWithText("番組の自動追加を設定").performScrollTo().performClick()
+        compose.onNodeWithText("含む語（カンマ区切り）").performTextInput("AI,Python")
+        compose.onNodeWithText("除外する語（カンマ区切り）").performScrollTo().performTextInput("広告")
+        compose.onAllNodes(isToggleable())[2].performScrollTo().performClick()
+        compose.onAllNodes(isToggleable())[3].performScrollTo().performClick()
+        screenshot("queue-rule")
+        compose.onNodeWithText("保存").performClick()
+        val event = actions.last() as PodcastAction.SaveQueueRule
+        assertEquals("AI,Python", event.rule.includeWords)
+        assertEquals("広告", event.rule.excludeWords)
+        org.junit.Assert.assertTrue(event.rule.autoDownload)
+        org.junit.Assert.assertTrue(event.applyExisting)
+    }
+
     private fun screenshot(name: String): Unit {
         val directory = File(requireNotNull(System.getProperty("podcast.screenshotDir")))
         check(directory.mkdirs() || directory.isDirectory)
