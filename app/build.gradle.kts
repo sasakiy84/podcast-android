@@ -16,10 +16,10 @@ android {
 
     defaultConfig {
         applicationId = "io.github.sasakiy84.podcast"
-        minSdk = 26
+        minSdk = 36
         targetSdk = 36
-        versionCode = providers.gradleProperty("releaseVersionCode").orElse("1").get().toInt()
-        versionName = providers.gradleProperty("releaseVersion").orElse("0.1.0").get()
+        versionCode = providers.gradleProperty("releaseVersionCode").orElse("3").get().toInt()
+        versionName = providers.gradleProperty("releaseVersion").orElse("0.2.0").get()
     }
     if (hasReleaseSigning) {
         signingConfigs {
@@ -50,6 +50,8 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
+            // Android 16's shared-memory shadow needs this JDK module during local tests.
+            it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
             val testHome = layout.buildDirectory.dir("test-home").get().asFile
             it.systemProperty("user.home", testHome.absolutePath)
             it.systemProperty("podcast.screenshotDir", layout.buildDirectory.dir("reports/screenshots").get().asFile.absolutePath)
@@ -80,6 +82,11 @@ dependencies {
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.media3:media3-exoplayer:1.11.1")
+    implementation("androidx.media3:media3-session:1.11.1")
+    implementation("org.jsoup:jsoup:1.23.2")
+    implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

@@ -1,40 +1,14 @@
 # Podcast Android
 
-Kotlin / Jetpack Compose の Android テストアプリ。カウントの増加、リセット、状態復元を確認できます。ポッドキャストの検索・音声再生は今後実装します。
+アカウント不要、購読情報・再生履歴・音声を端末内で管理する個人用ポッドキャストアプリです。
 
-## 開発
+- Apple Podcasts の番組検索、RSS / Atom の登録
+- Apple Podcasts・Spotify・Amazon Music・Pocket Casts の番組URLから登録（RSS を直接取得できない場合は候補を確認）
+- バックグラウンド再生、再生位置の復元、15秒戻し／30秒送り、0.5〜3倍速
+- 音声のダウンロード・削除、オフライン再生、未再生の絞り込み
 
-- JDK 21
-- Android SDK Platform 36 / Build Tools 36.0.0
-- 最小 Android 8.0（API 26）
-- Gradle 8.14.6 / Android Gradle Plugin 8.13.2 / Kotlin 2.2.21
+RSS のない独占配信は登録できません。検索・番組更新・ストリーミング時には配信元へ通信します。プレイリスト・レコメンド・クラウド同期はありません。
 
-Android Studio ではこのディレクトリを開きます。SDK パスは `ANDROID_HOME` または未追跡の `local.properties` で指定します。
+Android 16（API 36）以降に対応。JDK 21 / Android SDK 36。`./gradlew testDebugUnitTest lintDebug assembleDebug` で検証できます。クラウドでは先に `source /workspace/.android-dev/env.sh` を実行します。
 
-```bash
-./gradlew testDebugUnitTest lintDebug assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -n io.github.sasakiy84.podcast/.MainActivity
-```
-
-UI テストは Robolectric + Compose Test API を使い、エミュレーターなしで実行します。実機のシステムバーや端末固有の表示確認は別途行います。
-
-## このクラウド環境
-
-```bash
-./scripts/bootstrap-cloud.sh
-source /workspace/.android-dev/env.sh
-./gradlew testDebugUnitTest lintDebug assembleDebug
-```
-
-初回の Android CLI とグローバルスキルの導入には、ホームディレクトリへの書き込みが必要です。
-
-```bash
-python3 scripts/install-global-skills.py
-```
-
-公式 `android/skills` と `agent-toolbox` の `pkg00-base`・`pkg01-dev` を `~/.codex/skills` に導入します。取得元コミットは `scripts/SKILLS.lock` に記録しています。認識させるには新しい Codex タスクを開始してください。
-
-## リリース
-
-[署名とリリース手順](docs/releasing.md)を参照してください。GitHub Actions はバージョンタグを push したときのリリースワークフローだけです。通常のブランチ push や Pull Request では実行しません。
+署名とタグによるリリースは [docs/releasing.md](docs/releasing.md) を参照してください。
