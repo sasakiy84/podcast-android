@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Podcast Android</string>
+    <string name="welcome">Android アプリの最初の一歩。</string>
+    <string name="counter_label">タップ回数</string>
+    <string name="increment">カウントを増やす</string>
+    <string name="reset">リセット</string>
+</resources>
