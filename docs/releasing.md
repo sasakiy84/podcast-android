@@ -38,8 +38,8 @@ Secrets 登録後、テストが通った main のコミットにタグを付け
 ```bash
 git switch main
 ./gradlew testDebugUnitTest lintDebug assembleDebug
-git tag -a v0.1.0 -m 'Android テストアプリ v0.1.0 をリリースする'
-git push origin v0.1.0
+git tag -a v0.1.1 -m 'Android テストアプリ v0.1.1 をリリースする'
+git push origin v0.1.1
 ```
 
 `vMAJOR.MINOR.PATCH` 形式のタグだけを使います。タグ名が versionName、リリースワークフローの run_number が versionCode になります。配布済みアプリの更新では versionCode が過去の値を上回ることを確認してください。同じワークフローを再実行しても versionCode は変わりません。

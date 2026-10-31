@@ -48,7 +48,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' > "$RUNNER_TEMP/sdk-install.log" 2>&1 || { cat "$RUNNER_TEMP/sdk-install.log"; exit 1; }
+          export ANDROID_HOME="$RUNNER_TEMP/android-sdk"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          printf 'ANDROID_HOME=%s\nANDROID_SDK_ROOT=%s\n' "$ANDROID_HOME" "$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          curl -fsSL --retry 2 https://dl.google.com/android/repository/commandlinetools-linux-16111833_latest.zip -o "$RUNNER_TEMP/android-tools.zip"
+          printf 'e025545c62a8e64c7559119566a569fb1dec5f60  %s\n' "$RUNNER_TEMP/android-tools.zip" | sha1sum --check
+          unzip -q "$RUNNER_TEMP/android-tools.zip" -d "$ANDROID_HOME/cmdline-tools"
+          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" \
+            'platforms;android-36' 'build-tools;36.0.0' > "$RUNNER_TEMP/sdk-install.log" 2>&1 || { cat "$RUNNER_TEMP/sdk-install.log"; exit 1; }
       - name: Test, lint, and build signed release
         shell: bash
         run: |
