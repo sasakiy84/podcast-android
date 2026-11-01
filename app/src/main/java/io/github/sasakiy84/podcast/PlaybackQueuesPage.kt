@@ -6,6 +6,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +34,7 @@ internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingQueue by remember { mutableStateOf<PlaybackQueue?>(null) }
     var creating by remember { mutableStateOf(false) }
+    var queueMenu by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
     var ruleEditor by remember { mutableStateOf<QueueRule?>(null) }
     var newRule by remember { mutableStateOf(false) }
@@ -62,14 +65,20 @@ internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { selectedId = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "キュー一覧に戻る") }
                     Text(queue.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = { editingQueue = queue }) { Icon(Icons.Default.Edit, "キュー名を変更") }
-                    IconButton(onClick = { deleting = true }) { Icon(Icons.Default.DeleteOutline, "キューを削除") }
+                    Box {
+                        IconButton(onClick = { queueMenu = true }) { Icon(Icons.Default.MoreVert, "キューのメニュー") }
+                        DropdownMenu(expanded = queueMenu, onDismissRequest = { queueMenu = false }) {
+                            DropdownMenuItem(text = { Text("名前を変更") }, onClick = { queueMenu = false; editingQueue = queue })
+                            DropdownMenuItem(text = { Text("自動追加ルール") }, onClick = { queueMenu = false; ruleSettings = !ruleSettings })
+                            DropdownMenuItem(text = { Text("キューを削除") }, onClick = { queueMenu = false; deleting = true })
+                        }
+                    }
                 }
             }
             item {
                 Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Button(onClick = { action(PodcastAction.PlayQueue(queue.id)) }, shape = RoundedCornerShape(8.dp), enabled = queue.episodeIds.isNotEmpty() && state.playback.connected) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("キューを再生") }
-                    TextButton(onClick = { ruleSettings = !ruleSettings }) { Icon(Icons.Default.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("自動追加") }
+                    Text("${queue.episodeIds.size} エピソード", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FilledTonalButton(onClick = { action(PodcastAction.PlayQueue(queue.id)) }, enabled = queue.episodeIds.isNotEmpty() && state.playback.connected, modifier = Modifier.semantics { contentDescription = "キューを再生" }) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("再生") }
                 }
             }
             if (ruleSettings) {
@@ -90,7 +99,6 @@ internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -
                 }
 
             }
-            item { Text("${queue.episodeIds.size} エピソード", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)) }
             if (queue.episodeIds.isEmpty()) item { Text("エピソードはまだありません", modifier = Modifier.padding(vertical = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(queue.episodeIds, key = { it }) { id ->
                 state.library.episodes.firstOrNull { it.id == id }?.let { episode ->

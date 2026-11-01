@@ -177,7 +177,7 @@ class PodcastAppTest {
         compose.waitForIdle()
         assertEquals("英語学習", (actions.last() as PodcastAction.SaveQueue).name)
         compose.onNodeWithText("ニュース").performClick()
-        compose.onNodeWithText("キューを再生").performClick()
+        compose.onNodeWithContentDescription("キューを再生").performClick()
         compose.waitForIdle()
         assertEquals(PodcastAction.PlayQueue("news"), actions.last())
         screenshot("queue")
@@ -190,7 +190,7 @@ class PodcastAppTest {
         compose.setContent { PodcastApp(withQueues, actions::add) }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
         compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performClick()
-        compose.onNodeWithText("キューに追加・編集").performClick()
+        compose.onNodeWithContentDescription("キューに追加・編集").performClick()
         compose.onNodeWithText("キャンセル").assertDoesNotExist()
         compose.onAllNodes(isToggleable())[0].performClick()
         compose.onAllNodes(isToggleable())[1].performClick()

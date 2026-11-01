@@ -130,7 +130,7 @@ internal fun EpisodesPage(state: PodcastUiState, action: (PodcastAction) -> Unit
         }
         if (episodes.isEmpty()) {
             EmptyState(when (filter) { EpisodeFilter.Downloaded -> "ダウンロードはまだありません"; EpisodeFilter.Favorites -> "お気に入りはまだありません"; EpisodeFilter.History -> "再生履歴はまだありません"; else -> "エピソードはまだありません" }, "")
-        } else LazyColumn(state = list, contentPadding = PaddingValues(horizontal = 16.dp)) {
+        } else LazyColumn(modifier = Modifier.testTag("episodes-list"), state = list, contentPadding = PaddingValues(horizontal = 16.dp)) {
             items(episodes, key = { it.id }) { episode -> EpisodeCard(episode, state.library.podcasts.firstOrNull { it.feedUrl == episode.feedUrl }, state, action, details, onQueue = queue, swipes = swipes) }
             if (filter == EpisodeFilter.History && state.library.hasMoreHistory) item { TextButton(onClick = { action(PodcastAction.LoadMoreHistory) }, modifier = Modifier.fillMaxWidth()) { Text("さらに表示") } }
             if (state.library.hasMoreEpisodes && filter in listOf(EpisodeFilter.All, EpisodeFilter.Unplayed)) item { TextButton(onClick = { action(PodcastAction.LoadMoreEpisodes) }, modifier = Modifier.fillMaxWidth()) { Text("さらに表示") } }
@@ -154,12 +154,6 @@ internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiSt
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     if (showPodcastTitle && podcast != null) Text(podcast.title, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                     if (episode.id in state.library.favorites) Icon(Icons.Default.Star, "お気に入り", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                    val download = state.library.downloads[episode.id]
-                    if (download != null) Icon(when (download.status) {
-                        DownloadStatus.Complete -> Icons.Default.DownloadDone
-                        DownloadStatus.Failed -> Icons.Default.ErrorOutline
-                        else -> Icons.Default.Downloading
-                    }, when (download.status) { DownloadStatus.Complete -> "ダウンロード済み"; DownloadStatus.Failed -> "ダウンロード失敗"; else -> "ダウンロード中" }, Modifier.size(16.dp), tint = if (download.status == DownloadStatus.Complete) Color(0xFF65B94E) else MaterialTheme.colorScheme.onSurfaceVariant)
                     val duration = progress?.durationMs?.takeIf { it > 0 } ?: episode.durationMs
                     val position = progress?.positionMs ?: 0
                     val time = when {
@@ -169,6 +163,7 @@ internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiSt
                         else -> ""
                     }
                     Text(time, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    CompactDownloadButton(episode, state.library.downloads[episode.id], action, Modifier.size(32.dp))
                 }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -179,12 +174,7 @@ internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiSt
                     }
                     extra()
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { action(PodcastAction.QuickQueue(episode.id)) }, enabled = progress?.completed != true, modifier = Modifier.size(32.dp)) {
-                        Icon(if (state.library.queues.any { it.id == state.defaultQueueId && episode.id in it.episodeIds }) Icons.Default.Check else Icons.AutoMirrored.Filled.QueueMusic, "デフォルトキューに追加: ${episode.title}", Modifier.size(18.dp))
-                    }
-                    CompactDownloadButton(episode, state.library.downloads[episode.id], action, Modifier.size(32.dp))
-                }
+
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))

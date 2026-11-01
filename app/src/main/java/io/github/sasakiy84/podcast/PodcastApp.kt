@@ -18,6 +18,9 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.compose.ui.semantics.contentDescription
@@ -46,6 +49,9 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
         val selected = state.library.podcasts.firstOrNull { it.feedUrl == selectedFeed }
         val knownEpisodes = remember(state.library.episodes, state.podcastPages) { (state.podcastPages.values.flatMap { it.episodes } + state.library.episodes).associateBy { it.id } }
         val current = knownEpisodes[state.playback.episodeId]
+        var bottomBarHeight by remember { mutableIntStateOf(0) }
+        val bottomClearance = with(LocalDensity.current) { bottomBarHeight.toDp() }
+        LaunchedEffect(current?.id) { if (current == null) playerExpanded = false }
         val snackbar = remember { SnackbarHostState() }
         LaunchedEffect(state.message) {
             state.message?.let { message -> snackbar.showSnackbar(message); onAction(PodcastAction.ClearMessage) }
@@ -54,7 +60,7 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
             if (playerExpanded) playerExpanded = false else if (selectedFeed != null) selectedFeed = null else tab = HomeTab.Library
         }
         val navigation: @Composable () -> Unit = {
-                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+                    NavigationBar(modifier = Modifier.testTag("bottom-navigation"), containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
                         HomeTab.entries.forEach { item ->
                             NavigationBarItem(modifier = Modifier.semantics { contentDescription = "タブ: ${item.label}" }, selected = tab == item, onClick = { tab = item; selectedFeed = null },
                                 icon = { Icon(when (item) { HomeTab.Library -> Icons.Default.GridView; HomeTab.Episodes -> Icons.Default.Headphones; HomeTab.Queues -> Icons.AutoMirrored.Filled.QueueMusic; HomeTab.Search -> Icons.Default.Search }, null) },
@@ -65,7 +71,7 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
         Box(Modifier.fillMaxSize()) {
         PlayerHost(current, state, onAction, playerExpanded, { playerExpanded = it }, navigation,
             queues = { playerExpanded = false; selectedFeed = null; tab = HomeTab.Queues },
-            membership = { queueEpisode = current?.id }) { peek ->
+            membership = { queueEpisode = current?.id }, openPodcast = { playerExpanded = false; selectedFeed = current?.feedUrl }) { peek ->
         Scaffold(
             contentWindowInsets = WindowInsets.safeDrawing,
             snackbarHost = {},
@@ -98,9 +104,9 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                     },
                 )
             },
-            bottomBar = { if (current == null) navigation() else Spacer(Modifier.height(peek)) },
+            bottomBar = { Box(Modifier.onSizeChanged { bottomBarHeight = it.height }) { if (current == null) navigation() else Spacer(Modifier.height(peek)) } },
         ) { padding ->
-            RefreshableContent(enabled = selected != null || tab in listOf(HomeTab.Library, HomeTab.Episodes), isRefreshing = state.refreshing, onRefresh = { onAction(PodcastAction.Refresh) }, modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+            RefreshableContent(enabled = selected != null || tab in listOf(HomeTab.Library, HomeTab.Episodes), isRefreshing = state.refreshing, onRefresh = { onAction(PodcastAction.Refresh) }, modifier = Modifier.fillMaxSize().padding(padding).testTag("home-content").consumeWindowInsets(padding)) {
                 when {
                     selected != null -> routeStates.SaveableStateProvider("podcast:${selected.feedUrl}") { PodcastDetails(selected, state, onAction, queue = { queueEpisode = it.id }) { episodeSnapshot = it; episodeDetails = it.id } }
                     tab == HomeTab.Library -> routeStates.SaveableStateProvider("library") { PodcastLibrary(state.library, state.podcastSort, { selectedFeed = it.feedUrl }, { tab = HomeTab.Search }) }
@@ -111,11 +117,13 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
             }
         }
         }
-        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (playerExpanded) 96.dp else 152.dp))
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = if (playerExpanded) 96.dp else bottomClearance + 8.dp))
         }
         (knownEpisodes[episodeDetails] ?: episodeSnapshot?.takeIf { it.id == episodeDetails && state.library.podcasts.any { p -> p.feedUrl == it.feedUrl } })?.let { episode ->
             LaunchedEffect(episode.id) { onAction(PodcastAction.LoadDescription(episode.id)); onAction(PodcastAction.LoadChapters(episode.id)) }
-            ModalBottomSheet(shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp), sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), onDismissRequest = { episodeDetails = null }) {
+            val detailSheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            val animateDetail = rememberSheetAction(detailSheet)
+            ModalBottomSheet(shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp), sheetState = detailSheet, onDismissRequest = { episodeDetails = null }) {
                 LazyColumn(contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     item { Row(verticalAlignment = Alignment.CenterVertically) { CopyableText(episode.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall); EpisodeCopyButton(episode, state); FavoriteButton(episode.id, state, onAction) } }
                     item {
@@ -124,8 +132,14 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                             DownloadButton(episode, state.library.downloads[episode.id], onAction)
                         }
                     }
+                    state.library.podcasts.firstOrNull { it.feedUrl == episode.feedUrl }?.let { podcast ->
+                        item { PodcastLink(podcast) { animateDetail { episodeDetails = null; playerExpanded = false; selectedFeed = podcast.feedUrl } } }
+                    }
                     item { EpisodeChaptersSection(episode, state, onAction) }
-                    item { OutlinedButton(onClick = { queueEpisode = episode.id; episodeDetails = null }, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) { Text("キューに追加・編集") } }
+                    item { Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { onAction(PodcastAction.QuickQueue(episode.id)) }, modifier = Modifier.weight(1f)) { Icon(Icons.AutoMirrored.Filled.QueueMusic, null); Spacer(Modifier.width(6.dp)); Text("${state.library.queues.firstOrNull { it.id == state.defaultQueueId }?.name ?: "あとで聴く"}に追加", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        IconButton(onClick = { animateDetail { queueEpisode = episode.id; episodeDetails = null } }) { Icon(Icons.Default.MoreHoriz, "キューに追加・編集") }
+                    } }
                     if (episode.description.isNotBlank()) item { ContentText(state.descriptions[episode.id] ?: episode.description, style = MaterialTheme.typography.bodyLarge) }
                     item {
                         val completed = state.library.progress[episode.id]?.completed == true

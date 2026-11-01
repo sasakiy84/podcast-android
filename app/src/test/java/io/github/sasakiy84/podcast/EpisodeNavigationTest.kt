@@ -1,0 +1,86 @@
+package io.github.sasakiy84.podcast
+
+import androidx.activity.ComponentActivity
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import org.junit.Assert.*
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36], qualifiers = "ja-w360dp-h800dp")
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+class EpisodeNavigationTest {
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    private val show = Podcast("https://example.org/rss", "朝の番組")
+    private val episodes = (1..40).map { Episode("$it", show.feedUrl, "エピソード$it", "https://example.org/$it.mp3") }
+    private val state = PodcastUiState(library = Library(listOf(show), episodes))
+
+    @Test fun withoutAPlayerTheListExtendsToNavigation(): Unit {
+        compose.setContent { PodcastApp(state) }
+        compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        val list = compose.onNodeWithTag("episodes-list").fetchSemanticsNode().boundsInRoot
+        val nav = compose.onNodeWithTag("bottom-navigation").fetchSemanticsNode().boundsInRoot
+        assertEquals(nav.top, list.bottom, 1f)
+        compose.onNodeWithContentDescription("プレーヤーを開く").assertDoesNotExist()
+    }
+
+    @Test fun removingThePlayerReclaimsItsHeight(): Unit {
+        val ui = mutableStateOf(state.copy(playback = PlaybackUi("1", connected = true)))
+        compose.setContent { PodcastApp(ui.value) }
+        compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        val before = compose.onNodeWithTag("episodes-list").fetchSemanticsNode().boundsInRoot.bottom
+        compose.runOnIdle { ui.value = state }
+        val after = compose.onNodeWithTag("episodes-list").fetchSemanticsNode().boundsInRoot.bottom
+        val nav = compose.onNodeWithTag("bottom-navigation").fetchSemanticsNode().boundsInRoot
+        assertTrue(after - before >= 48f)
+        assertEquals(nav.top, after, 1f)
+    }
+
+    @Test fun withoutAPlayerMessagesDoNotReserveItsHeight(): Unit {
+        compose.setContent { PodcastApp(state.copy(message = "更新しました")) }
+        val message = compose.onNodeWithText("更新しました").fetchSemanticsNode().boundsInRoot
+        // The text has Snackbar's standard bottom padding; the removed player adds none.
+        val nav = compose.onNodeWithTag("bottom-navigation").fetchSemanticsNode().boundsInRoot
+        assertTrue("message gap=${nav.top - message.bottom}", nav.top - message.bottom < 40f)
+    }
+    @Test fun episodeDetailsOpenThePodcastAndBackRestoresListPosition(): Unit {
+        compose.setContent { PodcastApp(state) }
+        compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithTag("episodes-list").performScrollToIndex(19)
+        compose.onNodeWithContentDescription("エピソード詳細: エピソード20").performClick()
+        compose.onNodeWithContentDescription("番組を開く: ${show.title}").performClick()
+        compose.onNodeWithContentDescription("一覧に戻る").assertIsDisplayed()
+        compose.onNodeWithText("購読元").assertIsDisplayed()
+        compose.onNodeWithContentDescription("一覧に戻る").performClick()
+        compose.onNodeWithContentDescription("エピソード詳細: エピソード20").assertIsDisplayed()
+        compose.onNodeWithContentDescription("エピソード詳細: エピソード1").assertDoesNotExist()
+    }
+
+    @Test fun playerDetailsCanAlsoOpenThePodcast(): Unit {
+        compose.setContent { PodcastApp(state.copy(playback = PlaybackUi("1", connected = true))) }
+        compose.onNodeWithContentDescription("プレーヤーを開く").performClick()
+        compose.onNodeWithText("詳細").performClick()
+        compose.onNodeWithContentDescription("番組を開く: ${show.title}").performClick()
+        compose.onNodeWithContentDescription("一覧に戻る").assertIsDisplayed()
+        compose.onNodeWithContentDescription("プレーヤーを開く").assertIsDisplayed()
+    }
+
+    @Test fun queueRowsDoNotOfferToAddAnEpisodeAlreadyInTheQueue(): Unit {
+        val queues = listOf(PlaybackQueue("q", "あとで聴く", listOf("1", "2", "3")))
+        compose.setContent { PodcastApp(state.copy(library = state.library.copy(queues = queues))) }
+        compose.onNodeWithContentDescription("タブ: キュー").performClick()
+        compose.onNodeWithText("あとで聴く").performClick()
+        compose.onNodeWithContentDescription("デフォルトキューに追加: エピソード1").assertDoesNotExist()
+        compose.onNodeWithContentDescription("キューを再生").assertIsDisplayed()
+        compose.onNodeWithContentDescription("キューのメニュー").performClick()
+        compose.onNodeWithText("名前を変更").assertIsDisplayed()
+        compose.onNodeWithText("キューを削除").assertIsDisplayed()
+    }
+
+}

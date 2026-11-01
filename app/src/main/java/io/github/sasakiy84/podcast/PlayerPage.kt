@@ -68,7 +68,7 @@ internal fun MiniPlayer(episode: Episode, state: PodcastUiState, action: (Podcas
 }
 
 @Composable
-internal fun PlayerPage(episode: Episode, state: PodcastUiState, action: (PodcastAction) -> Unit, close: () -> Unit, membership: () -> Unit, queues: () -> Unit): Unit {
+internal fun PlayerPage(episode: Episode, state: PodcastUiState, action: (PodcastAction) -> Unit, close: () -> Unit, membership: () -> Unit, queues: () -> Unit, openPodcast: () -> Unit = {}): Unit {
     val playback = state.playback
     val podcast = state.library.podcasts.firstOrNull { it.feedUrl == episode.feedUrl }
     val duration = playback.durationMs.takeIf { it > 0 } ?: episode.durationMs
@@ -93,6 +93,7 @@ internal fun PlayerPage(episode: Episode, state: PodcastUiState, action: (Podcas
             when (page) {
                 2 -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp)) { item { EpisodeChaptersSection(episode, state, action, showTitle = false) } }
                 1 -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    if (podcast != null) item { PodcastLink(podcast, openPodcast) }
                     item { CopyableText(episode.title, style = MaterialTheme.typography.headlineSmall) }
                     if (episode.description.isNotBlank()) item { ContentText(state.descriptions[episode.id] ?: episode.description, style = MaterialTheme.typography.bodyLarge) }
                 }

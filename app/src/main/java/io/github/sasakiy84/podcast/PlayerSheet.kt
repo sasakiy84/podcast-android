@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.drop
 /** One persistent Material sheet: the mini-player and full player share drag anchors. */
 @Composable
 internal fun PlayerHost(episode: Episode?, state: PodcastUiState, action: (PodcastAction) -> Unit, expanded: Boolean, setExpanded: (Boolean) -> Unit,
-    navigation: @Composable () -> Unit, queues: () -> Unit, membership: () -> Unit, content: @Composable (androidx.compose.ui.unit.Dp) -> Unit): Unit {
+    navigation: @Composable () -> Unit, queues: () -> Unit, membership: () -> Unit, openPodcast: () -> Unit, content: @Composable (androidx.compose.ui.unit.Dp) -> Unit): Unit {
     if (episode == null) { content(0.dp); return }
     val sheet = rememberStandardBottomSheetState(initialValue = SheetValue.PartiallyExpanded, skipHiddenState = true)
     val scaffold = rememberBottomSheetScaffoldState(bottomSheetState = sheet)
@@ -46,7 +46,7 @@ internal fun PlayerHost(episode: Episode?, state: PodcastUiState, action: (Podca
         sheetContainerColor = MaterialTheme.colorScheme.surface, sheetContent = {
             Box(Modifier.fillMaxHeight()) {
                 if (progress > 0.001f) PodcastTheme(dark = true) {
-                    Surface(Modifier.fillMaxSize().alpha(progress)) { PlayerPage(episode, state, action, { setExpanded(false) }, membership, queues) }
+                    Surface(Modifier.fillMaxSize().alpha(progress)) { PlayerPage(episode, state, action, { setExpanded(false) }, membership, queues, openPodcast) }
                 }
                 if (progress < 0.999f) Column(Modifier.fillMaxWidth().alpha(1f - progress)) {
                     Box(Modifier.onSizeChanged { miniHeight = it.height }) { MiniPlayer(episode, state, action, queues) { setExpanded(true) } }
