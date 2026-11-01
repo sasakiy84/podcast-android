@@ -37,6 +37,7 @@ internal fun PlayerHost(episode: Episode?, state: PodcastUiState, action: (Podca
         val collapsed = (height - navigationHeight - miniHeight).coerceAtLeast(1).toFloat()
         (1f - offset / collapsed).coerceIn(0f, 1f)
     } }
+    PlayerSystemBars(progress > 0.5f)
     val scope = rememberCoroutineScope()
     BackHandler(enabled = progress > 0.001f) { setExpanded(false); scope.launch { sheet.partialExpand() } }
     Box(Modifier.fillMaxSize()) {
@@ -53,5 +54,26 @@ internal fun PlayerHost(episode: Episode?, state: PodcastUiState, action: (Podca
             }
         }) { content(peek) }
     if (progress < 0.999f) Box(Modifier.align(Alignment.BottomCenter).alpha(1f - progress).onSizeChanged { navigationHeight = it.height }) { navigation() }
+    }
+}
+
+@Composable
+private fun PlayerSystemBars(expanded: Boolean): Unit {
+    val view = androidx.compose.ui.platform.LocalView.current
+    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val activity = remember(view) {
+        generateSequence(view.context) { current -> (current as? android.content.ContextWrapper)?.baseContext?.takeIf { it !== current } }
+            .filterIsInstance<android.app.Activity>().firstOrNull()
+    }
+    DisposableEffect(activity, view, expanded, dark) {
+        val controller = activity?.window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
+        val oldStatus = controller?.isAppearanceLightStatusBars
+        val oldNavigation = controller?.isAppearanceLightNavigationBars
+        controller?.isAppearanceLightStatusBars = !expanded && !dark
+        controller?.isAppearanceLightNavigationBars = !expanded && !dark
+        onDispose {
+            if (oldStatus != null) controller?.isAppearanceLightStatusBars = oldStatus
+            if (oldNavigation != null) controller?.isAppearanceLightNavigationBars = oldNavigation
+        }
     }
 }

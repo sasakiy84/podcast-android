@@ -99,4 +99,18 @@ class PlayerPolishTest {
         assertFalse(visible.value)
     }
 
+    @Test fun systemBarIconsFollowThePlayerAndRestoreAfterClosing(): Unit {
+        val controller = androidx.core.view.WindowCompat.getInsetsController(compose.activity.window, compose.activity.window.decorView)
+        compose.runOnUiThread { controller.isAppearanceLightStatusBars = true; controller.isAppearanceLightNavigationBars = true }
+        compose.setContent { PodcastApp(base) }
+        compose.onNodeWithContentDescription("プレーヤーを開く").performClick()
+        compose.waitForIdle()
+        assertFalse(controller.isAppearanceLightStatusBars)
+        assertFalse(controller.isAppearanceLightNavigationBars)
+        compose.onNodeWithContentDescription("プレーヤーを閉じる").performClick()
+        compose.waitForIdle()
+        assertTrue(controller.isAppearanceLightStatusBars)
+        assertTrue(controller.isAppearanceLightNavigationBars)
+    }
+
 }
