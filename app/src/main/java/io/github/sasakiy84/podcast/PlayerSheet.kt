@@ -22,12 +22,18 @@ internal fun PlayerHost(episode: Episode?, state: PodcastUiState, action: (Podca
     if (episode == null) { content(0.dp); return }
     val sheet = rememberStandardBottomSheetState(initialValue = SheetValue.PartiallyExpanded, skipHiddenState = true)
     val scaffold = rememberBottomSheetScaffoldState(bottomSheetState = sheet)
-    var navigationHeight by remember { mutableIntStateOf(80) }
-    var miniHeight by remember { mutableIntStateOf(68) }
-    var height by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
+    val navigationInset = WindowInsets.navigationBars.getBottom(density)
+    var navigationHeight by remember(density, navigationInset) { mutableIntStateOf(with(density) { 80.dp.roundToPx() } + navigationInset) }
+    val miniHeight = with(density) { (64.dp + if (state.playback.durationMs > 0) 2.dp else 0.dp).roundToPx() }
+    var height by remember { mutableIntStateOf(0) }
     val peek = with(density) { (navigationHeight + miniHeight).toDp() }
-    LaunchedEffect(expanded) { if (expanded) sheet.expand() else sheet.partialExpand() }
+    LaunchedEffect(expanded, peek, height) {
+        // Anchor updates happen in layout; do not animate to the previous frame's height.
+        withFrameNanos { }
+        if (expanded && sheet.currentValue != SheetValue.Expanded) sheet.expand()
+        else if (!expanded && sheet.currentValue != SheetValue.PartiallyExpanded) sheet.partialExpand()
+    }
     val update by rememberUpdatedState(setExpanded)
     LaunchedEffect(sheet) { snapshotFlow { sheet.currentValue }.drop(1).collect { update(it == SheetValue.Expanded) } }
     val progress by remember { derivedStateOf {
@@ -37,6 +43,10 @@ internal fun PlayerHost(episode: Episode?, state: PodcastUiState, action: (Podca
         val collapsed = (height - navigationHeight - miniHeight).coerceAtLeast(1).toFloat()
         (1f - offset / collapsed).coerceIn(0f, 1f)
     } }
+    // Keep the collapsed controls mounted and opaque while the initial anchors settle.
+    // Measuring this row must not change the very anchor used to place it.
+    val collapsed = sheet.currentValue == SheetValue.PartiallyExpanded && sheet.targetValue == SheetValue.PartiallyExpanded
+    val miniAlpha = if (collapsed) 1f else 1f - progress
     PlayerSystemBars(progress > 0.5f)
     val scope = rememberCoroutineScope()
     BackHandler(enabled = progress > 0.001f) { setExpanded(false); scope.launch { sheet.partialExpand() } }
@@ -48,8 +58,8 @@ internal fun PlayerHost(episode: Episode?, state: PodcastUiState, action: (Podca
                 if (progress > 0.001f) PodcastTheme(dark = true) {
                     Surface(Modifier.fillMaxSize().alpha(progress)) { PlayerPage(episode, state, action, { setExpanded(false) }, membership, queues, openPodcast) }
                 }
-                if (progress < 0.999f) Column(Modifier.fillMaxWidth().alpha(1f - progress)) {
-                    Box(Modifier.onSizeChanged { miniHeight = it.height }) { MiniPlayer(episode, state, action, queues) { setExpanded(true) } }
+                if (collapsed || progress < 0.999f) Column(Modifier.fillMaxWidth().height(with(density) { miniHeight.toDp() }).alpha(miniAlpha)) {
+                    MiniPlayer(episode, state, action, queues) { setExpanded(true) }
                 }
             }
         }) { content(peek) }

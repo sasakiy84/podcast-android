@@ -42,13 +42,15 @@ class PlayerInteractionTest {
         assertFalse(actions.any { it == PodcastAction.TogglePlayback })
     }
 
-    @Test fun episodeRowsDownloadDirectlyAndLongPressCopiesTheTitle(): Unit {
+    @Test fun episodeRowsOfferDownloadsAndCopyingThroughLongPress(): Unit {
         val actions = mutableListOf<PodcastAction>()
         compose.setContent { PodcastApp(state, actions::add) }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
-        compose.onNodeWithContentDescription("ダウンロード: ${episode.title}").performClick()
+        compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performTouchInput { longClick() }
+        compose.onNode(hasText("ダウンロード") and hasAnyAncestor(isPopup())).performClick()
         assertEquals(PodcastAction.Download(episode), actions.last())
         compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performTouchInput { longClick() }
+        compose.onNodeWithText("タイトルをコピー").performClick()
         val clipboard = compose.activity.getSystemService(android.content.ClipboardManager::class.java)
         assertEquals(episode.title, clipboard.primaryClip?.getItemAt(0)?.text.toString())
     }

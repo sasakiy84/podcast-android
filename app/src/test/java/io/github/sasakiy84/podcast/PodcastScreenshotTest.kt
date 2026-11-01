@@ -143,7 +143,7 @@ class PodcastScreenshotTest {
         text("キューを削除")
         shot("13-delete-queue-confirmation")
         text("キャンセル")
-        icon("キュー内の操作: ${episodes[0].title}")
+        compose.onNodeWithContentDescription("エピソード詳細: ${episodes[0].title}").performTouchInput { longClick() }
         shot("14-queue-episode-menu")
         text("下へ移動")
         icon("キューのメニュー")

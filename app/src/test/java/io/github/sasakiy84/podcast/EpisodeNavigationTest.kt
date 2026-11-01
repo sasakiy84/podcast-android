@@ -83,4 +83,17 @@ class EpisodeNavigationTest {
         compose.onNodeWithText("キューを削除").assertIsDisplayed()
     }
 
+    @Test fun episodeRowsExposeOnlyThePlayButton(): Unit {
+        compose.setContent { PodcastApp(state.copy(library = state.library.copy(queues = listOf(PlaybackQueue("q", "あとで聴く", listOf("1")))))) }
+        compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        val row = hasContentDescription("エピソード詳細: エピソード1")
+        compose.onAllNodes(hasAnyAncestor(row) and hasClickAction()).assertCountEquals(1)
+        compose.onNodeWithContentDescription("タブ: キュー").performClick()
+        compose.onNodeWithText("あとで聴く").performClick()
+        compose.onAllNodes(hasAnyAncestor(row) and hasClickAction()).assertCountEquals(1)
+        compose.onNodeWithContentDescription("エピソード詳細: エピソード1").performTouchInput { longClick() }
+        compose.onNodeWithText("ダウンロード").assertIsDisplayed()
+        compose.onNodeWithText("キューから外す").assertIsDisplayed()
+    }
+
 }

@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -36,7 +37,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun MiniPlayer(episode: Episode, state: PodcastUiState, action: (PodcastAction) -> Unit, queues: () -> Unit, expand: () -> Unit): Unit {
     val podcast = state.library.podcasts.firstOrNull { it.feedUrl == episode.feedUrl }
-    Surface(Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(14.dp)), color = MaterialTheme.colorScheme.surfaceContainer) {
+    Surface(Modifier.testTag("mini-player").padding(horizontal = 8.dp).clip(RoundedCornerShape(14.dp)), color = MaterialTheme.colorScheme.surfaceContainer) {
         Column {
             Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

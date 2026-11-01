@@ -258,11 +258,11 @@ class PodcastAppTest {
         compose.onNodeWithContentDescription("タブ: キュー").performClick()
         compose.onNodeWithText("ニュース").performClick()
         compose.onNodeWithText("番組の自動追加を設定").assertDoesNotExist()
-        compose.onNodeWithContentDescription("キュー内の操作: ${episode.title}").performClick()
+        compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performTouchInput { longClick() }
         compose.onNodeWithText("下へ移動").performClick()
         compose.waitForIdle()
         assertEquals(PodcastAction.MoveQueueEpisode("news", episode.id, 1), actions.last())
-        compose.onNodeWithContentDescription("キュー内の操作: ${episode.title}").performClick()
+        compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performTouchInput { longClick() }
         compose.onNodeWithText("キューから外す").performClick()
         compose.waitForIdle()
         assertEquals(PodcastAction.QueueMembership("news", episode.id, false), actions.last())

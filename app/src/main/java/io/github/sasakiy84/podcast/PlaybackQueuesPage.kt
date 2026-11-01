@@ -105,16 +105,11 @@ internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -
                     Column {
                         EpisodeCard(episode, state.library.podcasts.firstOrNull { it.feedUrl == episode.feedUrl }, state, { event ->
                             if (event is PodcastAction.Play) action(PodcastAction.PlayQueue(queue.id, event.episode.id)) else action(event)
-                        }, details, onQueue = onQueue, swipes = swipes, removeFromQueue = { action(PodcastAction.QueueMembership(queue.id, id, false)) }) {
-                            Box {
-                                var menu by remember { mutableStateOf(false) }
-                                IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.MoreHoriz, "キュー内の操作: ${episode.title}") }
-                                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                                    DropdownMenuItem(text = { Text("上へ移動") }, onClick = { action(PodcastAction.MoveQueueEpisode(queue.id, id, -1)); menu = false }, enabled = queue.episodeIds.firstOrNull() != id)
-                                    DropdownMenuItem(text = { Text("下へ移動") }, onClick = { action(PodcastAction.MoveQueueEpisode(queue.id, id, 1)); menu = false }, enabled = queue.episodeIds.lastOrNull() != id)
-                                    DropdownMenuItem(text = { Text("キューから外す") }, onClick = { action(PodcastAction.QueueMembership(queue.id, id, false)); menu = false })
-                                }
-                            }
+                        }, details, onQueue = onQueue, swipes = swipes, removeFromQueue = { action(PodcastAction.QueueMembership(queue.id, id, false)) }) { closeMenu ->
+                            HorizontalDivider()
+                            DropdownMenuItem(text = { Text("上へ移動") }, onClick = { action(PodcastAction.MoveQueueEpisode(queue.id, id, -1)); closeMenu() }, enabled = queue.episodeIds.firstOrNull() != id)
+                            DropdownMenuItem(text = { Text("下へ移動") }, onClick = { action(PodcastAction.MoveQueueEpisode(queue.id, id, 1)); closeMenu() }, enabled = queue.episodeIds.lastOrNull() != id)
+                            DropdownMenuItem(text = { Text("キューから外す") }, onClick = { action(PodcastAction.QueueMembership(queue.id, id, false)); closeMenu() })
                         }
                     }
                 }

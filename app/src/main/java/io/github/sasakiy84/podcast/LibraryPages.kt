@@ -139,14 +139,15 @@ internal fun EpisodesPage(state: PodcastUiState, action: (PodcastAction) -> Unit
 }
 
 @Composable
-internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiState, action: (PodcastAction) -> Unit, details: (Episode) -> Unit, onQueue: (Episode) -> Unit = {}, swipes: EpisodeSwipeState = remember { EpisodeSwipeState() }, removeFromQueue: (() -> Unit)? = null, showPodcastTitle: Boolean = true, extra: @Composable () -> Unit = {}): Unit {
+internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiState, action: (PodcastAction) -> Unit, details: (Episode) -> Unit, onQueue: (Episode) -> Unit = {}, swipes: EpisodeSwipeState = remember { EpisodeSwipeState() }, removeFromQueue: (() -> Unit)? = null, showPodcastTitle: Boolean = true, extra: @Composable (() -> Unit) -> Unit = {}): Unit {
     val progress = state.library.progress[episode.id]
+    var contextMenu by remember(episode.id) { mutableStateOf(false) }
     val context = LocalContext.current
     fun copyTitle() { context.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newPlainText("エピソード", episode.title)) }
     val playing = state.playback.episodeId == episode.id && state.playback.playing
     EpisodeSwipeActions(episode, state, action, swipes, queue = { onQueue(episode) }, remove = removeFromQueue) {
     Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().combinedClickable(onClick = { swipes.openId = null; details(episode) }, onLongClick = { copyTitle() }).semantics { contentDescription = "エピソード詳細: ${episode.title}" }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().combinedClickable(onClick = { swipes.openId = null; details(episode) }, onLongClick = { contextMenu = true }).semantics { contentDescription = "エピソード詳細: ${episode.title}" }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             if (showPodcastTitle) Cover(podcast?.artwork.orEmpty(), podcast?.title ?: episode.title, Modifier.size(48.dp).semantics { contentDescription = "番組画像: ${podcast?.title.orEmpty()}" })
             Column(Modifier.weight(1f).alpha(if (progress?.completed == true) 0.55f else 1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (episode.published > 0) Text(DateTimeFormatter.ofPattern("M月d日").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(episode.published)), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -163,7 +164,10 @@ internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiSt
                         else -> ""
                     }
                     Text(time, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    CompactDownloadButton(episode, state.library.downloads[episode.id], action, Modifier.size(32.dp))
+                    state.library.downloads[episode.id]?.let { download ->
+                        Icon(when (download.status) { DownloadStatus.Complete -> Icons.Default.DownloadDone; DownloadStatus.Failed -> Icons.Default.ErrorOutline; else -> Icons.Default.Downloading },
+                            when (download.status) { DownloadStatus.Complete -> "ダウンロード済み"; DownloadStatus.Failed -> "ダウンロード失敗"; else -> "ダウンロード中" }, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -172,10 +176,19 @@ internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiSt
                         Icon(if (playing) Icons.Default.PauseCircleOutline else Icons.Default.PlayCircleOutline,
                             if (playing) "一時停止: ${episode.title}" else "再生: ${episode.title}", Modifier.size(30.dp), tint = MaterialTheme.colorScheme.primary)
                     }
-                    extra()
                 }
 
             }
+        }
+        DropdownMenu(expanded = contextMenu, onDismissRequest = { contextMenu = false }) {
+            DropdownMenuItem(text = { Text("デフォルトキューに追加") }, enabled = progress?.completed != true, onClick = { contextMenu = false; action(PodcastAction.QuickQueue(episode.id)) })
+            DropdownMenuItem(text = { Text("キューに追加・編集") }, onClick = { contextMenu = false; onQueue(episode) })
+            val downloaded = state.library.downloads[episode.id]?.status in listOf(DownloadStatus.Complete, DownloadStatus.Running, DownloadStatus.Waiting)
+            DropdownMenuItem(text = { Text(if (downloaded) "ダウンロードを削除" else "ダウンロード") }, onClick = { contextMenu = false; action(if (downloaded) PodcastAction.RemoveDownload(episode) else PodcastAction.Download(episode)) })
+            DropdownMenuItem(text = { Text(if (episode.id in state.library.favorites) "お気に入りを解除" else "お気に入りに追加") }, onClick = { contextMenu = false; action(PodcastAction.Favorite(episode.id, episode.id !in state.library.favorites)) })
+            DropdownMenuItem(text = { Text(if (progress?.completed == true) "未再生に戻す" else "再生済みにする") }, onClick = { contextMenu = false; action(PodcastAction.MarkPlayed(episode, progress?.completed != true)) })
+            DropdownMenuItem(text = { Text("タイトルをコピー") }, onClick = { contextMenu = false; copyTitle() })
+            extra { contextMenu = false }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     }
