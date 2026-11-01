@@ -90,7 +90,7 @@ internal fun PodcastDetails(podcast: Podcast, state: PodcastUiState, action: (Po
             TextButton(onClick = { sourceMenu = true }) { Text("購読元") }
             IconButton(onClick = { settingsMenu = true }) { Icon(Icons.Default.Settings, "番組の設定") }
         } }
-        if (podcast.description.isNotBlank()) item { ContentText(podcast.description, style = MaterialTheme.typography.bodyMedium) }
+        if (podcast.description.isNotBlank()) item { CollapsibleDescription(podcast.description) }
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -147,6 +147,7 @@ internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiSt
     EpisodeSwipeActions(episode, state, action, swipes, queue = { onQueue(episode) }, remove = removeFromQueue) {
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().combinedClickable(onClick = { swipes.openId = null; details(episode) }, onLongClick = { copyTitle() }).semantics { contentDescription = "エピソード詳細: ${episode.title}" }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (showPodcastTitle) Cover(podcast?.artwork.orEmpty(), podcast?.title ?: episode.title, Modifier.size(48.dp).semantics { contentDescription = "番組画像: ${podcast?.title.orEmpty()}" })
             Column(Modifier.weight(1f).alpha(if (progress?.completed == true) 0.55f else 1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (episode.published > 0) Text(DateTimeFormatter.ofPattern("M月d日").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(episode.published)), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(episode.title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -170,14 +171,20 @@ internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiSt
                     Text(time, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { action(PodcastAction.QuickQueue(episode.id)) }, enabled = progress?.completed != true) { Icon(if (state.library.queues.any { it.id == state.defaultQueueId && episode.id in it.episodeIds }) Icons.Default.Check else Icons.AutoMirrored.Filled.QueueMusic, "デフォルトキューに追加: ${episode.title}", Modifier.size(20.dp)) }
-                CompactDownloadButton(episode, state.library.downloads[episode.id], action)
-                IconButton(onClick = { swipes.openId = null; action(PodcastAction.Play(episode)) }, enabled = state.playback.connected, modifier = Modifier.size(48.dp)) {
-                    Icon(if (playing) Icons.Default.PauseCircleOutline else Icons.Default.PlayCircleOutline,
-                        if (playing) "一時停止: ${episode.title}" else "再生: ${episode.title}", Modifier.size(30.dp), tint = MaterialTheme.colorScheme.primary)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { swipes.openId = null; action(PodcastAction.Play(episode)) }, enabled = state.playback.connected, modifier = Modifier.size(40.dp)) {
+                        Icon(if (playing) Icons.Default.PauseCircleOutline else Icons.Default.PlayCircleOutline,
+                            if (playing) "一時停止: ${episode.title}" else "再生: ${episode.title}", Modifier.size(30.dp), tint = MaterialTheme.colorScheme.primary)
+                    }
+                    extra()
                 }
-                extra()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { action(PodcastAction.QuickQueue(episode.id)) }, enabled = progress?.completed != true, modifier = Modifier.size(32.dp)) {
+                        Icon(if (state.library.queues.any { it.id == state.defaultQueueId && episode.id in it.episodeIds }) Icons.Default.Check else Icons.AutoMirrored.Filled.QueueMusic, "デフォルトキューに追加: ${episode.title}", Modifier.size(18.dp))
+                    }
+                    CompactDownloadButton(episode, state.library.downloads[episode.id], action, Modifier.size(32.dp))
+                }
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))

@@ -41,7 +41,7 @@ internal fun SettingsPage(state: PodcastUiState, action: (PodcastAction) -> Unit
             Column(Modifier.padding(padding).consumeWindowInsets(padding).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Row(Modifier.fillMaxWidth().toggleable(state.wifiOnly, role = Role.Switch, onValueChange = { action(PodcastAction.WifiOnly(it)) }), verticalAlignment = Alignment.CenterVertically) { Text("Wi-Fi のみでダウンロード", Modifier.weight(1f)); Switch(state.wifiOnly, null) }
                 Text("更新間隔", style = MaterialTheme.typography.titleMedium)
-                Row { listOf(1, 3, 6, 12, 24).forEach { hours -> FilterChip(selected = state.refreshHours == hours, onClick = { action(PodcastAction.RefreshInterval(hours)) }, label = { Text("${hours}h") }) } }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { listOf(1, 3, 6, 12, 24).forEach { hours -> FilterChip(selected = state.refreshHours == hours, onClick = { action(PodcastAction.RefreshInterval(hours)) }, label = { Text("${hours}h") }) } }
                 Text("デフォルトキュー", style = MaterialTheme.typography.titleMedium)
                 val queues = (state.library.queues + if (state.library.queues.none { it.id == "default" }) listOf(PlaybackQueue("default", "あとで聴く")) else emptyList())
                 queues.forEach { queue -> Row(Modifier.fillMaxWidth().selectable(selected = state.defaultQueueId == queue.id, role = Role.RadioButton, onClick = { action(PodcastAction.DefaultQueue(queue.id)) }), verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = state.defaultQueueId == queue.id, onClick = null); Text(queue.name) } }

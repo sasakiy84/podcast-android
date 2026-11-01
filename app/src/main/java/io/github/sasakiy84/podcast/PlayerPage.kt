@@ -8,6 +8,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -33,9 +36,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun MiniPlayer(episode: Episode, state: PodcastUiState, action: (PodcastAction) -> Unit, queues: () -> Unit, expand: () -> Unit): Unit {
     val podcast = state.library.podcasts.firstOrNull { it.feedUrl == episode.feedUrl }
-    val currentExpand by rememberUpdatedState(expand)
-    val swipeThreshold = with(LocalDensity.current) { 40.dp.toPx() }
-    Surface(Modifier.pointerInput(swipeThreshold) { var moved = 0f; detectVerticalDragGestures(onDragStart = { moved = 0f }, onVerticalDrag = { change, amount -> change.consume(); moved += amount }, onDragEnd = { if (moved < -swipeThreshold) currentExpand() }) }.padding(horizontal = 8.dp).clip(RoundedCornerShape(14.dp)), color = MaterialTheme.colorScheme.surfaceContainer) {
+    Surface(Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(14.dp)), color = MaterialTheme.colorScheme.surfaceContainer) {
         Column {
             Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -74,25 +75,28 @@ internal fun PlayerPage(episode: Episode, state: PodcastUiState, action: (Podcas
     var scrubbing by remember(episode.id) { mutableStateOf<Float?>(null) }
     var speedMenu by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
-    var showDetails by rememberSaveable { mutableStateOf(false) }
-    var showChapters by rememberSaveable { mutableStateOf(false) }
-    val swipeThreshold = with(LocalDensity.current) { 40.dp.toPx() }
+    val hasChapters = episode.chapters.isNotEmpty() || episode.chaptersUrl.isNotBlank() || state.chapters[episode.id]?.isNotEmpty() == true
+    val pager = rememberPagerState { if (hasChapters) 3 else 2 }
+    val scope = rememberCoroutineScope()
     LaunchedEffect(episode.id) { action(PodcastAction.LoadDescription(episode.id)); action(PodcastAction.LoadChapters(episode.id)) }
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = close) { Icon(Icons.Default.KeyboardArrowDown, "プレーヤーを閉じる") }
             LazyRow(Modifier.weight(1f)) {
-                item { TextButton(onClick = { showDetails = false; showChapters = false }) { Text("再生中", color = if (!showDetails && !showChapters) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold) } }
-                item { TextButton(onClick = { showDetails = true; showChapters = false }) { Text("詳細", color = if (showDetails) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant) } }
-                if (episode.chapters.isNotEmpty() || episode.chaptersUrl.isNotBlank() || state.chapters[episode.id]?.isNotEmpty() == true) item { TextButton(onClick = { showChapters = true; showDetails = false }) { Text("チャプター") } }
+                item { TextButton(onClick = { scope.launch { pager.animateScrollToPage(0) } }) { Text("再生中", color = if (pager.currentPage == 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (pager.currentPage == 0) FontWeight.Bold else FontWeight.Normal) } }
+                item { TextButton(onClick = { scope.launch { pager.animateScrollToPage(1) } }) { Text("詳細", color = if (pager.currentPage == 1) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant) } }
+                if (hasChapters) item { TextButton(onClick = { scope.launch { pager.animateScrollToPage(2) } }) { Text("チャプター", color = if (pager.currentPage == 2) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant) } }
             }
             IconButton(onClick = queues) { Icon(Icons.AutoMirrored.Filled.QueueMusic, "キューを開く") }
         }
-        if (showChapters) LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(24.dp)) { item { EpisodeChaptersSection(episode, state, action, showTitle = false) } }
-        else if (showDetails) LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            item { CopyableText(episode.title, style = MaterialTheme.typography.headlineSmall) }
-            if (episode.description.isNotBlank()) item { ContentText(state.descriptions[episode.id] ?: episode.description, style = MaterialTheme.typography.bodyLarge) }
-        } else BoxWithConstraints(Modifier.weight(1f)) {
+        HorizontalPager(state = pager, modifier = Modifier.weight(1f).fillMaxWidth(), verticalAlignment = Alignment.Top) { page ->
+            when (page) {
+                2 -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp)) { item { EpisodeChaptersSection(episode, state, action, showTitle = false) } }
+                1 -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    item { CopyableText(episode.title, style = MaterialTheme.typography.headlineSmall) }
+                    if (episode.description.isNotBlank()) item { ContentText(state.descriptions[episode.id] ?: episode.description, style = MaterialTheme.typography.bodyLarge) }
+                }
+                else -> BoxWithConstraints(Modifier.fillMaxSize()) {
             val fontScale = LocalDensity.current.fontScale
             val artSize = minOf(maxWidth - 48.dp, maxHeight - 400.dp - 80.dp * (fontScale - 1f).coerceAtLeast(0f), 400.dp).coerceAtLeast(100.dp)
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -135,6 +139,8 @@ internal fun PlayerPage(episode: Episode, state: PodcastUiState, action: (Podcas
                 }
             }
         }
+            }
+        }
         Surface(Modifier.padding(16.dp).fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
             Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -142,7 +148,7 @@ internal fun PlayerPage(episode: Episode, state: PodcastUiState, action: (Podcas
                 }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { FavoriteButton(episode.id, state, action) }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    IconButton(onClick = { action(PodcastAction.QuickQueue(episode.id)) }) { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, "デフォルトキューに追加") }
+                    IconButton(onClick = { action(PodcastAction.QuickQueue(episode.id)) }) { Icon(if (state.library.queues.any { it.id == state.defaultQueueId && episode.id in it.episodeIds }) Icons.Default.Check else Icons.AutoMirrored.Filled.PlaylistAdd, "デフォルトキューに追加") }
                 }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     IconButton(onClick = { more = true }) { Icon(Icons.Default.MoreHoriz, "その他の操作") }

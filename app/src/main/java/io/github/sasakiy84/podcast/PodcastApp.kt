@@ -53,9 +53,22 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
         BackHandler(enabled = playerExpanded || selected != null || tab != HomeTab.Library) {
             if (playerExpanded) playerExpanded = false else if (selectedFeed != null) selectedFeed = null else tab = HomeTab.Library
         }
+        val navigation: @Composable () -> Unit = {
+                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+                        HomeTab.entries.forEach { item ->
+                            NavigationBarItem(modifier = Modifier.semantics { contentDescription = "タブ: ${item.label}" }, selected = tab == item, onClick = { tab = item; selectedFeed = null },
+                                icon = { Icon(when (item) { HomeTab.Library -> Icons.Default.GridView; HomeTab.Episodes -> Icons.Default.Headphones; HomeTab.Queues -> Icons.AutoMirrored.Filled.QueueMusic; HomeTab.Search -> Icons.Default.Search }, null) },
+                                label = { Text(if (item == HomeTab.Library) "番組" else item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) })
+                        }
+                    }
+        }
+        Box(Modifier.fillMaxSize()) {
+        PlayerHost(current, state, onAction, playerExpanded, { playerExpanded = it }, navigation,
+            queues = { playerExpanded = false; selectedFeed = null; tab = HomeTab.Queues },
+            membership = { queueEpisode = current?.id }) { peek ->
         Scaffold(
             contentWindowInsets = WindowInsets.safeDrawing,
-            snackbarHost = { SnackbarHost(snackbar) },
+            snackbarHost = {},
             topBar = {
                 TopAppBar(
                     title = { Text(selected?.title ?: tab.label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold) },
@@ -85,18 +98,7 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                     },
                 )
             },
-            bottomBar = {
-                Column {
-                    if (current != null) MiniPlayer(current, state, onAction, { tab = HomeTab.Queues; selectedFeed = null }) { playerExpanded = true }
-                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
-                        HomeTab.entries.forEach { item ->
-                            NavigationBarItem(modifier = Modifier.semantics { contentDescription = "タブ: ${item.label}" }, selected = tab == item, onClick = { tab = item; selectedFeed = null },
-                                icon = { Icon(when (item) { HomeTab.Library -> Icons.Default.GridView; HomeTab.Episodes -> Icons.Default.Headphones; HomeTab.Queues -> Icons.AutoMirrored.Filled.QueueMusic; HomeTab.Search -> Icons.Default.Search }, null) },
-                                label = { Text(if (item == HomeTab.Library) "番組" else item.label, maxLines = 1, overflow = TextOverflow.Ellipsis) })
-                        }
-                    }
-                }
-            },
+            bottomBar = { if (current == null) navigation() else Spacer(Modifier.height(peek)) },
         ) { padding ->
             RefreshableContent(enabled = selected != null || tab in listOf(HomeTab.Library, HomeTab.Episodes), isRefreshing = state.refreshing, onRefresh = { onAction(PodcastAction.Refresh) }, modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
                 when {
@@ -108,8 +110,8 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                 }
             }
         }
-        if (playerExpanded && current != null) PlayerSheet(onDismiss = { playerExpanded = false }) { close ->
-            PlayerPage(current, state, onAction, close, { close(); queueEpisode = current.id }, { close(); selectedFeed = null; tab = HomeTab.Queues })
+        }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (playerExpanded) 96.dp else 152.dp))
         }
         (knownEpisodes[episodeDetails] ?: episodeSnapshot?.takeIf { it.id == episodeDetails && state.library.podcasts.any { p -> p.feedUrl == it.feedUrl } })?.let { episode ->
             LaunchedEffect(episode.id) { onAction(PodcastAction.LoadDescription(episode.id)); onAction(PodcastAction.LoadChapters(episode.id)) }

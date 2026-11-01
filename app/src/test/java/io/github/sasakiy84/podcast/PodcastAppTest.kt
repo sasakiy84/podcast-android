@@ -40,6 +40,7 @@ class PodcastAppTest {
         compose.onNodeWithContentDescription("タブ: 検索").performClick()
         compose.onNodeWithText("番組名・キーワード").performTextInput("歴史")
         compose.onNodeWithText("検索する").performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.Search("歴史"), actions.last())
     }
 
@@ -51,6 +52,7 @@ class PodcastAppTest {
         compose.onNodeWithContentDescription("タブ: 検索").performClick()
         compose.onNodeWithText("番組名・キーワード").performTextInput(url)
         compose.onNodeWithText("番組を確認").performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.Resolve(url), actions.last())
     }
 
@@ -62,6 +64,7 @@ class PodcastAppTest {
         compose.onNodeWithContentDescription("タブ: 検索").performClick()
         compose.onNodeWithText("番組名・配信者を確認して登録してください。").assertIsDisplayed()
         compose.onNodeWithText("登録する").performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.Subscribe(candidate), actions.last())
     }
 
@@ -71,10 +74,12 @@ class PodcastAppTest {
         compose.setContent { PodcastApp(PodcastUiState(library = library, playback = PlaybackUi(connected = true)), actions::add) }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
         compose.onNodeWithContentDescription("再生: ${episode.title}").performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.Play(episode), actions.last())
         screenshot("episodes")
         compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performClick()
         compose.onNode(hasText("ダウンロード") and hasAnyAncestor(isDialog())).performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.Download(episode), actions.last())
     }
 
@@ -83,6 +88,7 @@ class PodcastAppTest {
         val actions = mutableListOf<PodcastAction>()
         compose.setContent { PodcastApp(state.copy(playback = state.playback.copy(buffering = true)), actions::add) }
         compose.onNodeWithContentDescription("一時停止").performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.TogglePlayback, actions.last())
     }
 
@@ -92,11 +98,14 @@ class PodcastAppTest {
         compose.setContent { PodcastApp(state, actions::add) }
         compose.onNodeWithContentDescription("プレーヤーを開く").performClick()
         compose.onNodeWithContentDescription("15秒戻る").performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.Skip(-15_000), actions.last())
         compose.onNodeWithContentDescription("30秒進む").performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.Skip(30_000), actions.last())
         compose.onNodeWithContentDescription("再生速度 1.0×").performClick()
         compose.onNodeWithText("1.5×").performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.Speed(1.5f), actions.last())
         screenshot("player")
     }
@@ -165,9 +174,11 @@ class PodcastAppTest {
         compose.onNodeWithText("キューを作成").performClick()
         compose.onNodeWithText("キュー名").performTextInput("英語学習")
         compose.onNodeWithText("保存").performClick()
+        compose.waitForIdle()
         assertEquals("英語学習", (actions.last() as PodcastAction.SaveQueue).name)
         compose.onNodeWithText("ニュース").performClick()
         compose.onNodeWithText("キューを再生").performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.PlayQueue("news"), actions.last())
         screenshot("queue")
     }
@@ -183,6 +194,7 @@ class PodcastAppTest {
         compose.onNodeWithText("キャンセル").assertDoesNotExist()
         compose.onAllNodes(isToggleable())[0].performClick()
         compose.onAllNodes(isToggleable())[1].performClick()
+        compose.waitForIdle()
         assertEquals(listOf(PodcastAction.QueueMembership("news", episode.id, true), PodcastAction.QueueMembership("english", episode.id, true)), actions.filterIsInstance<PodcastAction.QueueMembership>())
     }
 
@@ -199,6 +211,7 @@ class PodcastAppTest {
         compose.onNodeWithText("既存の未再生にも追加").performScrollTo().performClick()
         screenshot("queue-rule")
         compose.onNodeWithText("保存").performClick()
+        compose.waitForIdle()
         val event = actions.last() as PodcastAction.SaveQueueRule
         assertEquals("AI,Python", event.rule.includeWords)
         assertEquals("広告", event.rule.excludeWords)
@@ -216,8 +229,10 @@ class PodcastAppTest {
         val play = compose.onNodeWithContentDescription("一時停止").fetchSemanticsNode().boundsInRoot.center.x
         assertEquals((left + right) / 2f, play, 0.5f)
         compose.onNodeWithContentDescription("15秒戻る（ミニプレーヤー）").performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.Skip(-15_000), actions.last())
         compose.onNodeWithContentDescription("30秒スキップ").performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.Skip(30_000), actions.last())
     }
 
@@ -245,9 +260,11 @@ class PodcastAppTest {
         compose.onNodeWithText("番組の自動追加を設定").assertDoesNotExist()
         compose.onNodeWithContentDescription("キュー内の操作: ${episode.title}").performClick()
         compose.onNodeWithText("下へ移動").performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.MoveQueueEpisode("news", episode.id, 1), actions.last())
         compose.onNodeWithContentDescription("キュー内の操作: ${episode.title}").performClick()
         compose.onNodeWithText("キューから外す").performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.QueueMembership("news", episode.id, false), actions.last())
     }
 
@@ -261,6 +278,7 @@ class PodcastAppTest {
         compose.waitUntil(5_000) { compose.onNodeWithContentDescription("再生速度 1.0×").isDisplayed() }
         compose.onNodeWithContentDescription("再生速度 1.0×").assertIsDisplayed()
         compose.onNodeWithContentDescription("30秒進む").performScrollTo().performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.Skip(30_000), actions.last())
         screenshot("player-large-text")
     }
@@ -271,6 +289,7 @@ class PodcastAppTest {
         compose.setContent { SettingsPage(state, {}, {}, { imports++ }, { exports++ }) }
         compose.onNodeWithText("OPML をインポート").performClick()
         compose.onNodeWithText("OPML をエクスポート").performClick()
+        compose.waitForIdle()
         assertEquals(1, imports); assertEquals(1, exports)
     }
 
@@ -295,6 +314,7 @@ class PodcastAppTest {
         org.junit.Assert.assertTrue(actions.none { it is PodcastAction.Unsubscribe })
         compose.onNodeWithContentDescription("購読を解除").performClick()
         compose.onNodeWithText("購読を解除").performClick()
+        compose.waitForIdle()
         assertEquals(PodcastAction.Unsubscribe(second), actions.last())
     }
 

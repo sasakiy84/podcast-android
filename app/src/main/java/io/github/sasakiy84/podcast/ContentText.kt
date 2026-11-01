@@ -10,12 +10,14 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 
 @Composable
-internal fun ContentText(text: String, modifier: Modifier = Modifier, style: TextStyle = MaterialTheme.typography.bodyLarge): Unit {
+internal fun ContentText(text: String, modifier: Modifier = Modifier, style: TextStyle = MaterialTheme.typography.bodyLarge, maxLines: Int = Int.MAX_VALUE, onTextLayout: (TextLayoutResult) -> Unit = {}): Unit {
     val color = MaterialTheme.colorScheme.primary
     val annotated = remember(text, color) {
         buildAnnotatedString {
@@ -33,7 +35,7 @@ internal fun ContentText(text: String, modifier: Modifier = Modifier, style: Tex
             append(text.substring(offset))
         }
     }
-    SelectionContainer { Text(annotated, modifier, style = style) }
+    SelectionContainer { Text(annotated, modifier, style = style, maxLines = maxLines, overflow = TextOverflow.Ellipsis, onTextLayout = onTextLayout) }
 }
 
 @Composable

@@ -21,7 +21,10 @@ internal fun PodcastSettingsSheet(podcast: Podcast, state: PodcastUiState, actio
     var start by rememberSaveable(podcast.feedUrl, options.skipStartSeconds) { mutableStateOf(options.skipStartSeconds.toString()) }
     var end by rememberSaveable(podcast.feedUrl, options.skipEndSeconds) { mutableStateOf(options.skipEndSeconds.toString()) }
     val valid = start.toIntOrNull() in 0..3600 && end.toIntOrNull() in 0..3600
-    ModalBottomSheet(onDismissRequest = dismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val animate = rememberSheetAction(sheet)
+    val close = { animate(dismiss) }
+    ModalBottomSheet(onDismissRequest = dismiss, sheetState = sheet) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             CopyableText(podcast.title, style = MaterialTheme.typography.titleLarge)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -31,7 +34,7 @@ internal fun PodcastSettingsSheet(podcast: Podcast, state: PodcastUiState, actio
             OutlinedTextField(value = start, onValueChange = { start = it.filter(Char::isDigit).take(4) }, label = { Text("最初をスキップ（秒）") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, isError = start.toIntOrNull() !in 0..3600, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = end, onValueChange = { end = it.filter(Char::isDigit).take(4) }, label = { Text("最後をスキップ（秒）") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, isError = end.toIntOrNull() !in 0..3600, modifier = Modifier.fillMaxWidth())
             Text("0〜3600秒", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = { action(PodcastAction.SetPodcastOptions(podcast.feedUrl, options.copy(skipStartSeconds = start.toInt(), skipEndSeconds = end.toInt()))); dismiss() }, enabled = valid, modifier = Modifier.align(Alignment.End)) { Text("保存") }
+            TextButton(onClick = { action(PodcastAction.SetPodcastOptions(podcast.feedUrl, options.copy(skipStartSeconds = start.toInt(), skipEndSeconds = end.toInt()))); close() }, enabled = valid, modifier = Modifier.align(Alignment.End)) { Text("保存") }
         }
     }
 }

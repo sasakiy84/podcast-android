@@ -22,7 +22,10 @@ internal fun PlaybackSpeedSheet(state: PodcastUiState, feedUrl: String?, podcast
     val stored = if (specific) state.podcastSpeeds[feedUrl] ?: state.globalSpeed else state.globalSpeed
     var speed by remember(specific, stored) { mutableFloatStateOf(stored) }
     fun save(value: Float): Unit { speed = (round(value.coerceIn(0.5f, 3f) * 100) / 100); action(PodcastAction.Speed(speed, feedUrl.takeIf { specific })) }
-    ModalBottomSheet(onDismissRequest = dismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val animate = rememberSheetAction(sheet)
+    val close = { animate(dismiss) }
+    ModalBottomSheet(onDismissRequest = dismiss, sheetState = sheet, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("再生速度", style = MaterialTheme.typography.titleMedium)
             if (feedUrl != null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -37,12 +40,12 @@ internal fun PlaybackSpeedSheet(state: PodcastUiState, feedUrl: String?, podcast
             Slider(speed, { speed = it }, valueRange = 0.5f..3f, steps = 49, onValueChangeFinished = { save(speed) }, modifier = Modifier.semantics { contentDescription = "再生速度を調整" })
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f).forEach { value ->
-                    TextButton(onClick = { save(value); dismiss() }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("${value}×") }
+                    TextButton(onClick = { save(value); close() }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("${value}×") }
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 if (specific && feedUrl in state.podcastSpeeds) TextButton(onClick = { action(PodcastAction.UseGlobalSpeed(requireNotNull(feedUrl))); speed = state.globalSpeed }) { Text("全体設定に戻す") }
-                TextButton(onClick = dismiss) { Text("完了") }
+                TextButton(onClick = close) { Text("完了") }
             }
         }
     }

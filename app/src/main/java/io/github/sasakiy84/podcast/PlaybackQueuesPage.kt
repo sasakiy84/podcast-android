@@ -169,13 +169,15 @@ internal fun QueueRuleDialog(queue: PlaybackQueue, existing: QueueRule?, library
 
 @Composable
 internal fun QueueFormSheet(title: String, dismiss: () -> Unit, save: () -> Unit, saveEnabled: Boolean, saveText: String = "保存", showCancel: Boolean = true, content: @Composable ColumnScope.() -> Unit): Unit {
-    ModalBottomSheet(onDismissRequest = dismiss, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp), sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val animate = rememberSheetAction(sheet)
+    ModalBottomSheet(onDismissRequest = dismiss, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp), sheetState = sheet) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                if (showCancel) TextButton(onClick = dismiss) { Text("キャンセル") }
-                Button(onClick = save, shape = RoundedCornerShape(8.dp), enabled = saveEnabled) { Text(saveText) }
+                if (showCancel) TextButton(onClick = { animate(dismiss) }) { Text("キャンセル") }
+                Button(onClick = { animate(save) }, shape = RoundedCornerShape(8.dp), enabled = saveEnabled) { Text(saveText) }
             }
         }
     }

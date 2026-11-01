@@ -23,9 +23,12 @@ internal fun PodcastSourceSheet(podcast: Podcast, dismiss: () -> Unit): Unit {
     fun open(url: String): Unit {
         try { uri.openUri(url) } catch (_: IllegalArgumentException) { android.widget.Toast.makeText(context, "URL を開けるアプリがありません。", android.widget.Toast.LENGTH_SHORT).show() }
     }
-    ModalBottomSheet(onDismissRequest = dismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val animate = rememberSheetAction(sheet)
+    val close = { animate(dismiss) }
+    ModalBottomSheet(onDismissRequest = dismiss, sheetState = sheet, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) { Text("購読元", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium); IconButton(onClick = dismiss) { Icon(Icons.Default.Close, "購読元を閉じる", Modifier.size(20.dp)) } }
+            Row(verticalAlignment = Alignment.CenterVertically) { Text("購読元", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium); IconButton(onClick = close) { Icon(Icons.Default.Close, "購読元を閉じる", Modifier.size(20.dp)) } }
             SelectionContainer { Text(podcast.feedUrl, style = MaterialTheme.typography.bodyMedium) }
             Row {
                 TextButton(onClick = { context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("RSS", podcast.feedUrl)) }) { Text("URL をコピー") }

@@ -59,13 +59,15 @@ internal fun formatDuration(ms: Long): String {
 
 @Composable
 internal fun ConfirmationSheet(title: String, description: String, confirm: String, onDismiss: () -> Unit, onConfirm: () -> Unit): Unit {
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val animate = rememberSheetAction(sheet)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("キャンセル") }
-                TextButton(onClick = onConfirm, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(confirm) }
+                TextButton(onClick = { animate(onDismiss) }) { Text("キャンセル") }
+                TextButton(onClick = { animate(onConfirm) }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(confirm) }
             }
         }
     }

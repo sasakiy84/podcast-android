@@ -13,6 +13,8 @@
 
 変更後は `./gradlew testDebugUnitTest lintDebug assembleDebug`。再生・保存の回帰は `EpisodeFeaturesTest`、操作は `PlayerInteractionTest` / `PodcastUxTest`、画面の明暗・文字拡大は `PodcastScreenshotTest` で確認する。実 RSS / OPML の私的データはテストコードやリポジトリに含めない。
 
-`MainActivity` は単一の再生セッションとタブ・番組詳細を保持し、サブ画面では BackHandler で上位へ戻る。アプリ終了は番組一覧のルートだけに委ねる。設定は `SettingsActivity` に分け、OS の Activity バックスタックで戻る。再生画面は `PlayerSheet` の Material ModalBottomSheet とし、独自の距離判定による即時削除は使わない。標準のアンカー・速度・ネストスクロール・hide アニメーションで開閉する。
+`MainActivity` は単一の再生セッションとタブ・番組詳細を保持し、サブ画面では BackHandler で上位へ戻る。アプリ終了は番組一覧のルートだけに委ねる。設定は `SettingsActivity` に分け、OS の Activity バックスタックで戻る。再生画面は `PlayerHost` の常設 Material BottomSheetScaffold とし、ミニプレーヤーと展開画面でアンカーを共有する。標準のアンカー・速度・ネストスクロール・hide アニメーションで開閉する。
 
 起動時はDBを表示するだけでRSSを更新しない。全購読を対象に永続 JobScheduler を設定し、設定した間隔で更新する。明示した更新操作やOPML取り込み直後の取得は即時に実行する。Wi-Fi 制限の変更は未完了の DownloadManager リクエストを再作成して適用する。
+
+`PlayerHost` は常設の BottomSheetScaffold と標準 SheetState の展開・折りたたみアンカーを共有する。ミニプレーヤー側で距離だけを判定して別画面を出さない。再生中のタブは HorizontalPager と同じ状態で管理する。シートをボタンで閉じる操作は `rememberSheetAction` で hide 完了後に解除し、未完了の終了処理の重複を防ぐ。キュー追加の結果はプレーヤーより上の Snackbar と追加済みアイコンで示す。

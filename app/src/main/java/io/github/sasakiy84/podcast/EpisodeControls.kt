@@ -24,11 +24,11 @@ internal fun RewindIcon(description: String): Unit {
 }
 
 @Composable
-internal fun CompactDownloadButton(episode: Episode, download: EpisodeDownload?, action: (PodcastAction) -> Unit): Unit {
+internal fun CompactDownloadButton(episode: Episode, download: EpisodeDownload?, action: (PodcastAction) -> Unit, modifier: Modifier = Modifier): Unit {
     val active = download?.status in listOf(DownloadStatus.Waiting, DownloadStatus.Running)
     val complete = download?.status == DownloadStatus.Complete
     val label = when { complete -> "ダウンロードを削除"; active -> "ダウンロードを取消"; download?.status == DownloadStatus.Failed -> "ダウンロードを再試行"; else -> "ダウンロード" }
-    IconButton(onClick = { action(if (complete || active) PodcastAction.RemoveDownload(episode) else PodcastAction.Download(episode)) }, modifier = Modifier.semantics { contentDescription = "$label: ${episode.title}" }) {
+    IconButton(onClick = { action(if (complete || active) PodcastAction.RemoveDownload(episode) else PodcastAction.Download(episode)) }, modifier = modifier.semantics { contentDescription = "$label: ${episode.title}" }) {
         if (active) Box(contentAlignment = Alignment.Center) {
             CircularProgressIndicator(progress = { download!!.percent / 100f }, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
             Icon(Icons.Default.Close, null, Modifier.size(14.dp))

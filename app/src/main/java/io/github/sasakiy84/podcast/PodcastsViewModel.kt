@@ -64,7 +64,7 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
 
     fun dispatch(action: PodcastAction): Unit {
         when (action) {
-            is PodcastAction.QuickQueue -> viewModelScope.launch { runOperation { repository.quickQueue(action.episodeId) } }.let { }
+            is PodcastAction.QuickQueue -> viewModelScope.launch { runOperation { repository.quickQueue(action.episodeId); val name = repository.library.value.queues.firstOrNull { it.id == repository.settings.defaultQueue }?.name.orEmpty(); mutableState.update { it.copy(message = "「$name」に追加しました。") } } }.let { }
             is PodcastAction.DefaultQueue -> { repository.settings.setDefaultQueue(action.id); updatePreferences() }
             is PodcastAction.WifiOnly -> viewModelScope.launch { runOperation { repository.setWifiOnly(action.enabled); updatePreferences() } }.let { }
             is PodcastAction.RefreshInterval -> viewModelScope.launch { runOperation { repository.settings.setRefreshHours(action.hours); repository.configureBackgroundSync(); updatePreferences() } }.let { }
