@@ -31,17 +31,18 @@ internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -
     var deleting by remember { mutableStateOf(false) }
     var ruleEditor by remember { mutableStateOf<QueueRule?>(null) }
     var newRule by remember { mutableStateOf(false) }
+    var ruleSettings by rememberSaveable { mutableStateOf(false) }
     val queue = state.library.queues.firstOrNull { it.id == selectedId }
     BackHandler(enabled = queue != null) { selectedId = null }
-    LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (queue == null) {
             item { Button(onClick = { creating = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text("キューを作成") } }
             if (state.library.queues.isEmpty()) item {
-                Text("ニュース、技術、英語学習。聴きたい回をテーマごとにまとめられます。", modifier = Modifier.padding(vertical = 16.dp))
+                Text("キューはまだありません", modifier = Modifier.padding(vertical = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(state.library.queues, key = { it.id }) { item ->
-                OutlinedCard(onClick = { selectedId = item.id }, modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.fillMaxWidth().clickable { selectedId = item.id; ruleSettings = false }) {
+                    Row(Modifier.padding(vertical = 22.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Icon(Icons.AutoMirrored.Filled.QueueMusic, null)
                         Column(Modifier.weight(1f)) {
                             Text(item.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -49,9 +50,9 @@ internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -
                         }
                         Icon(Icons.Default.ChevronRight, null)
                     }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 }
             }
-            item { Text("聴き終えた回は、すべてのキューから外れます。音声ファイルと再生履歴は残ります。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         } else {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -61,36 +62,48 @@ internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -
                     IconButton(onClick = { deleting = true }) { Icon(Icons.Default.DeleteOutline, "キューを削除") }
                 }
             }
-            item { Button(onClick = { action(PodcastAction.PlayQueue(queue.id)) }, enabled = queue.episodeIds.isNotEmpty() && state.playback.connected, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("キューを再生") } }
-            item { Text("自動追加する番組", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
-            items(state.library.queueRules.filter { it.queueId == queue.id }, key = { it.feedUrl }) { rule ->
-                OutlinedCard(Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f).clickable { ruleEditor = rule }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(state.library.podcasts.firstOrNull { it.feedUrl == rule.feedUrl }?.title.orEmpty(), style = MaterialTheme.typography.titleSmall)
-                            Text(if (rule.enabled) "新着を自動追加${if (rule.autoDownload) "・自動保存" else ""}" else "自動追加を停止中", style = MaterialTheme.typography.bodySmall)
-                            if (rule.includeWords.isNotBlank()) Text("含む: ${rule.includeWords}", maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
-                            if (rule.excludeWords.isNotBlank()) Text("除外: ${rule.excludeWords}", maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
-                        }
-                        IconButton(onClick = { ruleEditor = rule }) { Icon(Icons.Default.Edit, "自動追加ルールを編集") }
-                        IconButton(onClick = { action(PodcastAction.DeleteQueueRule(queue.id, rule.feedUrl)) }) { Icon(Icons.Default.Close, "この自動追加ルールを削除") }
-                    }
+            item {
+                Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Button(onClick = { action(PodcastAction.PlayQueue(queue.id)) }, enabled = queue.episodeIds.isNotEmpty() && state.playback.connected) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("キューを再生") }
+                    TextButton(onClick = { ruleSettings = !ruleSettings }) { Icon(Icons.Default.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("自動追加") }
                 }
             }
-            item { OutlinedButton(onClick = { newRule = true }, enabled = state.library.podcasts.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("番組の自動追加を設定") } }
-            item { Text(if (state.library.podcasts.isEmpty()) "先にポッドキャストを登録してください。" else "約1時間ごとに新着を確認します。OSの制御により遅れることがあります。上の更新ボタンでも確認できます。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            item { Text("再生するエピソード", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
-            if (queue.episodeIds.isEmpty()) item { Text("エピソードの詳細から追加するか、番組の自動追加を設定してください。") }
+            if (ruleSettings) {
+                item { Text("自動追加する番組", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+                items(state.library.queueRules.filter { it.queueId == queue.id }, key = { it.feedUrl }) { rule ->
+                    OutlinedCard(Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f).clickable { ruleEditor = rule }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(state.library.podcasts.firstOrNull { it.feedUrl == rule.feedUrl }?.title.orEmpty(), style = MaterialTheme.typography.titleSmall)
+                                Text(if (rule.enabled) "新着を自動追加${if (rule.autoDownload) "・自動保存" else ""}" else "自動追加を停止中", style = MaterialTheme.typography.bodySmall)
+                                if (rule.includeWords.isNotBlank()) Text("含む: ${rule.includeWords}", maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+                                if (rule.excludeWords.isNotBlank()) Text("除外: ${rule.excludeWords}", maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+                            }
+                            IconButton(onClick = { ruleEditor = rule }) { Icon(Icons.Default.Edit, "自動追加ルールを編集") }
+                            IconButton(onClick = { action(PodcastAction.DeleteQueueRule(queue.id, rule.feedUrl)) }) { Icon(Icons.Default.Close, "この自動追加ルールを削除") }
+                        }
+                    }
+                }
+                item { OutlinedButton(onClick = { newRule = true }, enabled = state.library.podcasts.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("番組の自動追加を設定") } }
+                if (state.library.podcasts.isEmpty()) item { Text("先にポッドキャストを登録してください。", style = MaterialTheme.typography.bodySmall) }
+            }
+            item { Text("${queue.episodeIds.size} エピソード", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)) }
+            if (queue.episodeIds.isEmpty()) item { Text("エピソードはまだありません", modifier = Modifier.padding(vertical = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(queue.episodeIds, key = { it }) { id ->
                 state.library.episodes.firstOrNull { it.id == id }?.let { episode ->
                     Column {
                         EpisodeCard(episode, state.library.podcasts.firstOrNull { it.feedUrl == episode.feedUrl }, state, { event ->
                             if (event is PodcastAction.Play) action(PodcastAction.PlayQueue(queue.id, event.episode.id)) else action(event)
-                        }, details)
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            IconButton(onClick = { action(PodcastAction.MoveQueueEpisode(queue.id, id, -1)) }, enabled = queue.episodeIds.firstOrNull() != id) { Icon(Icons.Default.ArrowUpward, "${episode.title}を上へ") }
-                            IconButton(onClick = { action(PodcastAction.MoveQueueEpisode(queue.id, id, 1)) }, enabled = queue.episodeIds.lastOrNull() != id) { Icon(Icons.Default.ArrowDownward, "${episode.title}を下へ") }
-                            TextButton(onClick = { action(PodcastAction.QueueMembership(queue.id, id, false)) }) { Text("このキューから外す") }
+                        }, details) {
+                            Box {
+                                var menu by remember { mutableStateOf(false) }
+                                IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.MoreHoriz, "キュー内の操作: ${episode.title}") }
+                                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                    DropdownMenuItem(text = { Text("上へ移動") }, onClick = { action(PodcastAction.MoveQueueEpisode(queue.id, id, -1)); menu = false }, enabled = queue.episodeIds.firstOrNull() != id)
+                                    DropdownMenuItem(text = { Text("下へ移動") }, onClick = { action(PodcastAction.MoveQueueEpisode(queue.id, id, 1)); menu = false }, enabled = queue.episodeIds.lastOrNull() != id)
+                                    DropdownMenuItem(text = { Text("キューから外す") }, onClick = { action(PodcastAction.QueueMembership(queue.id, id, false)); menu = false })
+                                }
+                            }
                         }
                     }
                 }
@@ -119,14 +132,13 @@ internal fun QueueMembershipDialog(episode: Episode, library: Library, action: (
     var name by remember { mutableStateOf("") }
     var newId by remember { mutableStateOf(UUID.randomUUID().toString()) }
     val completed = library.progress[episode.id]?.completed == true
-    QueueFormSheet("キューに追加・編集", dismiss, dismiss, true, "完了") {
+    QueueFormSheet("キューに追加・編集", dismiss, dismiss, true, "完了", showCancel = false) {
         Text(episode.title, style = MaterialTheme.typography.titleSmall)
         if (completed) Text("再生済みの回は、詳細画面で未再生に戻してから追加できます。")
         for (queue in library.queues) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = episode.id in queue.episodeIds, onCheckedChange = { action(PodcastAction.QueueMembership(queue.id, episode.id, it)) }, enabled = !completed)
             Text(queue.name, modifier = Modifier.weight(1f))
         }
-        Text("同じ回を複数のキューに追加できます。", style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(name, { name = it }, label = { Text("新しいキュー名") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedButton(onClick = { action(PodcastAction.SaveQueue(newId, name.trim(), episode.id)); name = ""; newId = UUID.randomUUID().toString() }, enabled = !completed && name.trim().length in 1..80, modifier = Modifier.fillMaxWidth()) { Text("作成して追加") }
     }
@@ -150,24 +162,23 @@ private fun QueueRuleDialog(queue: PlaybackQueue, existing: QueueRule?, library:
             }
         }
         ToggleRow("新着を自動追加", enabled) { enabled = it }
-        OutlinedTextField(include, { include = it }, label = { Text("含む語（カンマ区切り）") }, modifier = Modifier.fillMaxWidth(), maxLines = 3)
-        Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(all, { all = it }); Text("含む語のすべてに一致（オフならどれか）", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall) }
+        OutlinedTextField(include, { include = it }, label = { Text("含む語（カンマ区切り）") }, placeholder = { Text("空欄ならすべて") }, modifier = Modifier.fillMaxWidth(), maxLines = 3)
+        Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(all, { all = it }); Text("すべての語に一致", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium) }
         OutlinedTextField(exclude, { exclude = it }, label = { Text("除外する語（カンマ区切り）") }, modifier = Modifier.fillMaxWidth(), maxLines = 3)
-        Text("タイトル・説明が対象です。含む語が空ならすべて対象。除外語に一致した回は追加しません。英字の大小は区別しません。", style = MaterialTheme.typography.bodySmall)
+        Text("タイトル・説明から検索", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         ToggleRow("一致した回を自動ダウンロード", download) { download = it }
         Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(apply, { apply = it }); Text("既存の未再生にも追加", Modifier.weight(1f)) }
-        Text("通常は設定後の新着だけに適用します。既にあるキュー項目は変更しません。", style = MaterialTheme.typography.bodySmall)
     }
 }
 
 @Composable
-private fun QueueFormSheet(title: String, dismiss: () -> Unit, save: () -> Unit, saveEnabled: Boolean, saveText: String = "保存", content: @Composable ColumnScope.() -> Unit): Unit {
+private fun QueueFormSheet(title: String, dismiss: () -> Unit, save: () -> Unit, saveEnabled: Boolean, saveText: String = "保存", showCancel: Boolean = true, content: @Composable ColumnScope.() -> Unit): Unit {
     ModalBottomSheet(onDismissRequest = dismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = dismiss) { Text("キャンセル") }
+                if (showCancel) TextButton(onClick = dismiss) { Text("キャンセル") }
                 Button(onClick = save, enabled = saveEnabled) { Text(saveText) }
             }
         }

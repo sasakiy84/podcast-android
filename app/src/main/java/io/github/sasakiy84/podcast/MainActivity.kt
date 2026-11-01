@@ -13,6 +13,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?): Unit {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        window.isNavigationBarContrastEnforced = false
         setContent {
             val state by model.state.collectAsState()
             PodcastApp(state, model::dispatch)

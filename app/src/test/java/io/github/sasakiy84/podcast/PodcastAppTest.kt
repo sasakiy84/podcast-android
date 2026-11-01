@@ -20,8 +20,8 @@ import java.io.File
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class PodcastAppTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
-    private val show = Podcast("https://example.org/feed", "朝のノート", "暮らしのラジオ", description = "日々の小さな発見を、ゆっくり話す番組です。")
-    private val second = Podcast("https://example.org/second", "深呼吸ラジオ", "音の便り")
+    private val show = Podcast("https://example.org/feed", "朝のノート", "暮らしのラジオ", artwork = artwork("MORNING\nNOTES", 0xFF123954.toInt()), description = "日々の小さな発見を、ゆっくり話す番組です。")
+    private val second = Podcast("https://example.org/second", "深呼吸ラジオ", "音の便り", artwork = artwork("DEEP\nBREATH", 0xFFE8AD60.toInt()))
     private val episode = Episode("episode-one", show.feedUrl, "静かな朝のつづき", "https://example.org/one.mp3", "コーヒーを淹れながら、今日の予定を考えます。", 1_700_000_000_000, 1_800_000)
     private val library = Library(listOf(show, second), listOf(episode))
     private val state = PodcastUiState(library = library, playback = PlaybackUi(episode.id, true, positionMs = 120_000, durationMs = 1_800_000, connected = true))
@@ -72,9 +72,10 @@ class PodcastAppTest {
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
         compose.onNodeWithContentDescription("再生: ${episode.title}").performClick()
         assertEquals(PodcastAction.Play(episode), actions.last())
-        compose.onNodeWithText("保存する").performClick()
-        assertEquals(PodcastAction.Download(episode), actions.last())
         screenshot("episodes")
+        compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performClick()
+        compose.onNode(hasText("ダウンロード") and hasAnyAncestor(isDialog())).performClick()
+        assertEquals(PodcastAction.Download(episode), actions.last())
     }
 
     @Test
@@ -89,12 +90,12 @@ class PodcastAppTest {
     fun fullPlayerChangesSpeedAndSkips(): Unit {
         val actions = mutableListOf<PodcastAction>()
         compose.setContent { PodcastApp(state, actions::add) }
-        compose.onNodeWithText(episode.title).performClick()
-        compose.onNodeWithText("−15秒").performClick()
+        compose.onNodeWithContentDescription("プレーヤーを開く").performClick()
+        compose.onNodeWithContentDescription("15秒戻る").performClick()
         assertEquals(PodcastAction.Skip(-15_000), actions.last())
-        compose.onNodeWithText("+30秒").performClick()
+        compose.onNodeWithContentDescription("30秒進む").performClick()
         assertEquals(PodcastAction.Skip(30_000), actions.last())
-        compose.onNodeWithText("再生速度 1.0×").performClick()
+        compose.onNodeWithContentDescription("再生速度 1.0×").performClick()
         compose.onNodeWithText("1.5×").performClick()
         assertEquals(PodcastAction.Speed(1.5f), actions.last())
         screenshot("player")
@@ -104,7 +105,7 @@ class PodcastAppTest {
     fun seekSliderChangesPlaybackPosition(): Unit {
         val actions = mutableListOf<PodcastAction>()
         compose.setContent { PodcastApp(state, actions::add) }
-        compose.onNodeWithText(episode.title).performClick()
+        compose.onNodeWithContentDescription("プレーヤーを開く").performClick()
         compose.onNodeWithContentDescription("再生位置").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(600_000f) }
         assertEquals(PodcastAction.Seek(600_000), actions.last())
     }
@@ -121,15 +122,18 @@ class PodcastAppTest {
     fun selectedPodcastSurvivesStateRestoration(): Unit {
         val restoration = StateRestorationTester(compose)
         restoration.setContent { PodcastApp(state) }
-        compose.onNodeWithText(second.title).performClick()
+        compose.onNodeWithContentDescription(second.title).performClick()
         restoration.emulateSavedInstanceStateRestore()
         compose.onNodeWithContentDescription("一覧に戻る").assertIsDisplayed()
     }
 
     @Test
     fun libraryShowsLocalSubscriptionsAndMiniPlayer(): Unit {
-        compose.setContent { PodcastApp(state) }
-        compose.onNodeWithText(second.title).assertIsDisplayed()
+        val shows = listOf(show, second) + listOf("WORLD NEWS", "TECH TABLE", "ENGLISH", "WEEKLY", "DESIGN", "SCIENCE", "DAILY").mapIndexed { index, name ->
+            Podcast("https://example.org/$index", name, artwork = artwork(name.replace(" ", "\n"), listOf(0xFFAA262C.toInt(), 0xFF07304A.toInt(), 0xFF40855E.toInt())[index % 3]))
+        }
+        compose.setContent { PodcastApp(state.copy(library = library.copy(podcasts = shows))) }
+        compose.onNodeWithContentDescription(second.title).assertIsDisplayed()
         compose.onNodeWithText(episode.title).assertIsDisplayed()
         screenshot("library")
     }
@@ -137,12 +141,8 @@ class PodcastAppTest {
     @Test
     @Config(qualifiers = "ja-w320dp-h640dp")
     fun narrowScreenSupportsLargeText(): Unit {
-        compose.setContent {
-            val density = androidx.compose.ui.platform.LocalDensity.current.density
-            androidx.compose.runtime.CompositionLocalProvider(
-                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density, 1.5f),
-            ) { PodcastApp(state) }
-        }
+        org.robolectric.RuntimeEnvironment.setFontScale(1.5f)
+        compose.setContent { PodcastApp(state) }
         compose.onNodeWithContentDescription("タブ: 検索").assertIsDisplayed()
         compose.onNodeWithText(episode.title).assertIsDisplayed()
         screenshot("library-large-text")
@@ -152,7 +152,7 @@ class PodcastAppTest {
     @Config(qualifiers = "ja-w360dp-h800dp-night")
     fun librarySupportsDarkMode(): Unit {
         compose.setContent { PodcastApp(state) }
-        compose.onNodeWithText(second.title).assertIsDisplayed()
+        compose.onNodeWithContentDescription(second.title).assertIsDisplayed()
         screenshot("library-dark")
     }
 
@@ -180,6 +180,7 @@ class PodcastAppTest {
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
         compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performClick()
         compose.onNodeWithText("キューに追加・編集").performClick()
+        compose.onNodeWithText("キャンセル").assertDoesNotExist()
         compose.onAllNodes(isToggleable())[0].performClick()
         compose.onAllNodes(isToggleable())[1].performClick()
         assertEquals(listOf(PodcastAction.QueueMembership("news", episode.id, true), PodcastAction.QueueMembership("english", episode.id, true)), actions.filterIsInstance<PodcastAction.QueueMembership>())
@@ -191,6 +192,7 @@ class PodcastAppTest {
         compose.setContent { PodcastApp(state.copy(library = library.copy(queues = listOf(PlaybackQueue("tech", "技術")))) , actions::add) }
         compose.onNodeWithContentDescription("タブ: キュー").performClick()
         compose.onNodeWithText("技術").performClick()
+        compose.onNodeWithText("自動追加").performClick()
         compose.onNodeWithText("番組の自動追加を設定").performScrollTo().performClick()
         compose.onNodeWithText("含む語（カンマ区切り）").performTextInput("AI,Python")
         compose.onNodeWithText("除外する語（カンマ区切り）").performScrollTo().performTextInput("広告")
@@ -203,6 +205,65 @@ class PodcastAppTest {
         assertEquals("広告", event.rule.excludeWords)
         org.junit.Assert.assertTrue(event.rule.autoDownload)
         org.junit.Assert.assertTrue(event.applyExisting)
+    }
+
+    @Test
+    fun fullPlayerDetailsAndQueueActionsRemainAccessible(): Unit {
+        val actions = mutableListOf<PodcastAction>()
+        compose.setContent { PodcastApp(state, actions::add) }
+        compose.onNodeWithContentDescription("プレーヤーを開く").performClick()
+        compose.onNodeWithText("詳細").performClick()
+        compose.onNodeWithText(episode.description).assertIsDisplayed()
+        compose.onNodeWithContentDescription("ダウンロード").performClick()
+        assertEquals(PodcastAction.Download(episode), actions.last())
+        compose.onNodeWithContentDescription("キューに追加・編集").performClick()
+        compose.onNodeWithText("新しいキュー名").assertIsDisplayed()
+    }
+
+    @Test
+    fun queueOrderingAndRemovalAreAvailableInEpisodeMenu(): Unit {
+        val actions = mutableListOf<PodcastAction>()
+        val extra = episode.copy(id = "two", title = "午後のノート")
+        val queues = listOf(PlaybackQueue("news", "ニュース", listOf(episode.id, extra.id)))
+        compose.setContent { PodcastApp(state.copy(library = library.copy(episodes = listOf(episode, extra), queues = queues)), actions::add) }
+        compose.onNodeWithContentDescription("タブ: キュー").performClick()
+        compose.onNodeWithText("ニュース").performClick()
+        compose.onNodeWithText("番組の自動追加を設定").assertDoesNotExist()
+        compose.onNodeWithContentDescription("キュー内の操作: ${episode.title}").performClick()
+        compose.onNodeWithText("下へ移動").performClick()
+        assertEquals(PodcastAction.MoveQueueEpisode("news", episode.id, 1), actions.last())
+        compose.onNodeWithContentDescription("キュー内の操作: ${episode.title}").performClick()
+        compose.onNodeWithText("キューから外す").performClick()
+        assertEquals(PodcastAction.QueueMembership("news", episode.id, false), actions.last())
+    }
+
+    @Test
+    @Config(qualifiers = "ja-w320dp-h640dp-night")
+    fun playerSupportsLargeTextOnNarrowScreen(): Unit {
+        val actions = mutableListOf<PodcastAction>()
+        org.robolectric.RuntimeEnvironment.setFontScale(1.5f)
+        compose.setContent { PodcastApp(state, actions::add) }
+        compose.onNodeWithContentDescription("プレーヤーを開く").performClick()
+        compose.waitUntil(5_000) { compose.onNodeWithContentDescription("再生速度 1.0×").isDisplayed() }
+        compose.onNodeWithContentDescription("再生速度 1.0×").assertIsDisplayed()
+        compose.onNodeWithContentDescription("30秒進む").performScrollTo().performClick()
+        assertEquals(PodcastAction.Skip(30_000), actions.last())
+        screenshot("player-large-text")
+    }
+
+    private fun artwork(title: String, color: Int): String {
+        val file = File(requireNotNull(System.getProperty("podcast.screenshotDir")), "fixtures/${title.hashCode()}.png")
+        check(file.parentFile!!.mkdirs() || file.parentFile!!.isDirectory)
+        val bitmap = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(color)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { this.color = android.graphics.Color.WHITE; textSize = 52f; typeface = android.graphics.Typeface.DEFAULT_BOLD }
+        title.split('\n').forEachIndexed { i, line -> canvas.drawText(line, 30f, 150f + i * 62f, paint) }
+        paint.alpha = 90
+        paint.strokeWidth = 3f
+        canvas.drawLine(30f, 320f, 370f, 320f, paint)
+        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        return file.toURI().toString()
     }
 
     private fun screenshot(name: String): Unit {
