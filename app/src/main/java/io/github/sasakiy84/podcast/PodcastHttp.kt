@@ -116,7 +116,7 @@ class PodcastHttp {
                 connection.instanceFollowRedirects = false
                 connection.setRequestProperty(
                     "User-Agent",
-                    "PodcastAndroid/0.5 (+https://github.com/sasakiy84/podcast-android)",
+                    "GalenaCast/0.9 (+https://github.com/sasakiy84/podcast-android)",
                 )
                 connection.setRequestProperty(
                     "Accept",

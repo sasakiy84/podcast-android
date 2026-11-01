@@ -83,7 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$RELEASE_TAG" dist/* --verify-tag \
-            --title "Podcast Android $RELEASE_TAG" --notes-file docs/release-notes.md
+            --title "GalenaCast $RELEASE_TAG" --notes-file docs/release-notes.md
       - name: Remove signing material
         if: always()
         shell: bash

@@ -20,7 +20,7 @@ internal class PodcastDownloadStorage(
         val request =
             DownloadManager.Request(podcastUrl(episode.audioUrl).toASCIIString().toUri())
                 .setTitle(episode.title)
-                .setDescription("Podcast Android")
+                .setDescription(context.getString(R.string.app_name))
                 .setNotificationVisibility(
                     DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
                 )

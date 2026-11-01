@@ -69,7 +69,7 @@ object PodcastOpml {
         xml.setFeature("http://xmlpull.org/v1/doc/features.html#indent-output", true)
         xml.startDocument("UTF-8", true)
         xml.startTag(null, "opml").attribute(null, "version", "2.0")
-        xml.startTag(null, "head").startTag(null, "title").text("Podcast Android").endTag(null, "title").endTag(null, "head")
+        xml.startTag(null, "head").startTag(null, "title").text("GalenaCast").endTag(null, "title").endTag(null, "head")
         xml.startTag(null, "body")
         for (podcast in podcasts.distinctBy { it.feedUrl }) {
             xml.startTag(null, "outline")

@@ -1,4 +1,6 @@
-# Podcast Android
+# GalenaCast
+
+GalenaCast は、鉱石ラジオに由来する名前です。Galena（方鉛鉱）は鉱石ラジオの検波器に使われた鉱石で、Cast はポッドキャストを表します。[ロゴの10案](docs/branding/README.md)は、結晶・検波針・コイルをモチーフにしています。
 
 Android 16 以降向け、購読・再生履歴・音声を端末内で管理する個人用ポッドキャストアプリです。
 
