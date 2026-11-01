@@ -76,11 +76,10 @@ internal fun PlayerPage(episode: Episode, state: PodcastUiState, action: (Podcas
     var more by remember { mutableStateOf(false) }
     var showDetails by rememberSaveable { mutableStateOf(false) }
     var showChapters by rememberSaveable { mutableStateOf(false) }
-    val currentClose by rememberUpdatedState(close)
     val swipeThreshold = with(LocalDensity.current) { 40.dp.toPx() }
     LaunchedEffect(episode.id) { action(PodcastAction.LoadDescription(episode.id)); action(PodcastAction.LoadChapters(episode.id)) }
-    Column(Modifier.fillMaxSize().safeDrawingPadding().dismissPlayerOnSwipe(close)) {
-        Row(Modifier.fillMaxWidth().pointerInput(swipeThreshold) { var moved = 0f; detectVerticalDragGestures(onDragStart = { moved = 0f }, onVerticalDrag = { change, amount -> change.consume(); moved += amount }, onDragEnd = { if (moved > swipeThreshold) currentClose() }) }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = close) { Icon(Icons.Default.KeyboardArrowDown, "プレーヤーを閉じる") }
             LazyRow(Modifier.weight(1f)) {
                 item { TextButton(onClick = { showDetails = false; showChapters = false }) { Text("再生中", color = if (!showDetails && !showChapters) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold) } }
@@ -95,7 +94,7 @@ internal fun PlayerPage(episode: Episode, state: PodcastUiState, action: (Podcas
             if (episode.description.isNotBlank()) item { ContentText(state.descriptions[episode.id] ?: episode.description, style = MaterialTheme.typography.bodyLarge) }
         } else BoxWithConstraints(Modifier.weight(1f)) {
             val fontScale = LocalDensity.current.fontScale
-            val artSize = minOf(maxWidth - 48.dp, maxHeight - 320.dp - 80.dp * (fontScale - 1f).coerceAtLeast(0f), 400.dp).coerceAtLeast(100.dp)
+            val artSize = minOf(maxWidth - 48.dp, maxHeight - 400.dp - 80.dp * (fontScale - 1f).coerceAtLeast(0f), 400.dp).coerceAtLeast(100.dp)
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 item { Cover(episode.artwork.ifBlank { podcast?.artwork.orEmpty() }, episode.title, Modifier.size(artSize).semantics { contentDescription = "プレーヤーのアートワーク" }) }
                 item {
@@ -116,19 +115,22 @@ internal fun PlayerPage(episode: Episode, state: PodcastUiState, action: (Podcas
                         }
                     }
                 }
+                item { NowPlayingChapter(episode, state, action) }
                 item {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { action(PodcastAction.Skip(-15_000)) }, enabled = playback.connected, modifier = Modifier.size(56.dp).semantics { contentDescription = "15秒戻る" }) {
+                        IconButton(onClick = { action(PodcastAction.PreviousEpisode) }, enabled = playback.hasPrevious) { Icon(Icons.Default.SkipPrevious, "前のエピソード") }
+                        IconButton(onClick = { action(PodcastAction.Skip(-15_000)) }, enabled = playback.connected, modifier = Modifier.size(48.dp).semantics { contentDescription = "15秒戻る" }) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(Icons.Default.Replay, null, Modifier.size(40.dp))
                                 Text("15", Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                             }
                         }
-                        FilledIconButton(onClick = { action(PodcastAction.TogglePlayback) }, enabled = playback.connected, modifier = Modifier.size(76.dp).semantics { contentDescription = if (playback.playing) "一時停止" else "再生を再開" }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
+                        FilledIconButton(onClick = { action(PodcastAction.TogglePlayback) }, enabled = playback.connected, modifier = Modifier.size(64.dp).semantics { contentDescription = if (playback.playing) "一時停止" else "再生を再開" }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
                             if (playback.buffering) CircularProgressIndicator(Modifier.size(32.dp), color = MaterialTheme.colorScheme.surface)
                             else Icon(if (playback.playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, Modifier.size(40.dp))
                         }
-                        IconButton(onClick = { action(PodcastAction.Skip(30_000)) }, enabled = playback.connected, modifier = Modifier.size(56.dp)) { Icon(Icons.Default.Forward30, "30秒進む", Modifier.size(36.dp)) }
+                        IconButton(onClick = { action(PodcastAction.Skip(30_000)) }, enabled = playback.connected, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.Forward30, "30秒進む", Modifier.size(30.dp)) }
+                        IconButton(onClick = { action(PodcastAction.NextEpisode) }, enabled = playback.hasNext) { Icon(Icons.Default.SkipNext, "次のエピソード") }
                     }
                 }
             }
@@ -140,11 +142,12 @@ internal fun PlayerPage(episode: Episode, state: PodcastUiState, action: (Podcas
                 }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { FavoriteButton(episode.id, state, action) }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    IconButton(onClick = membership) { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, "キューに追加・編集") }
+                    IconButton(onClick = { action(PodcastAction.QuickQueue(episode.id)) }) { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, "デフォルトキューに追加") }
                 }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     IconButton(onClick = { more = true }) { Icon(Icons.Default.MoreHoriz, "その他の操作") }
                     DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                        DropdownMenuItem(text = { Text("キューに追加・編集") }, onClick = { more = false; membership() })
                         EpisodeCopyItems(episode, state.descriptions[episode.id] ?: episode.description, podcast?.title.orEmpty()) { more = false }
                         HorizontalDivider()
                         val completed = state.library.progress[episode.id]?.completed == true

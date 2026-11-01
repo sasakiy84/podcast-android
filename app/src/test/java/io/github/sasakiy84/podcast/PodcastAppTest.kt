@@ -190,14 +190,13 @@ class PodcastAppTest {
     fun queueRuleEditorSavesKeywordsAndAutomaticDownload(): Unit {
         val actions = mutableListOf<PodcastAction>()
         compose.setContent { PodcastApp(state.copy(library = library.copy(queues = listOf(PlaybackQueue("tech", "技術")))) , actions::add) }
-        compose.onNodeWithContentDescription("タブ: キュー").performClick()
+        compose.onNodeWithContentDescription(library.podcasts.first().title).performClick()
+        compose.onNodeWithText("キューへの自動追加").performScrollTo().performClick()
         compose.onNodeWithText("技術").performClick()
-        compose.onNodeWithText("自動追加").performClick()
-        compose.onNodeWithText("番組の自動追加を設定").performScrollTo().performClick()
         compose.onNodeWithText("含む語（カンマ区切り）").performTextInput("AI,Python")
         compose.onNodeWithText("除外する語（カンマ区切り）").performScrollTo().performTextInput("広告")
-        compose.onAllNodes(isToggleable())[2].performScrollTo().performClick()
-        compose.onAllNodes(isToggleable())[3].performScrollTo().performClick()
+        compose.onNodeWithText("一致した回を自動ダウンロード").performScrollTo().performClick()
+        compose.onNodeWithText("既存の未再生にも追加").performScrollTo().performClick()
         screenshot("queue-rule")
         compose.onNodeWithText("保存").performClick()
         val event = actions.last() as PodcastAction.SaveQueueRule
@@ -230,7 +229,8 @@ class PodcastAppTest {
         compose.onNodeWithText("詳細").performClick()
         compose.onNodeWithText(episode.description).assertIsDisplayed()
         compose.onNodeWithContentDescription("ダウンロード").assertDoesNotExist()
-        compose.onNodeWithContentDescription("キューに追加・編集").performClick()
+        compose.onNodeWithContentDescription("その他の操作").performClick()
+        compose.onNodeWithText("キューに追加・編集").performClick()
         compose.onNodeWithText("新しいキュー名").assertIsDisplayed()
     }
 
@@ -267,22 +267,16 @@ class PodcastAppTest {
 
     @Test
     fun libraryMenuOpensOpmlImportAndExport(): Unit {
-        var imports = 0
-        var exports = 0
-        compose.setContent { PodcastApp(state, onImportOpml = { imports++ }, onExportOpml = { exports++ }) }
-        compose.onNodeWithContentDescription("番組一覧のメニュー").performClick()
-        screenshot("opml-menu")
+        var imports = 0; var exports = 0
+        compose.setContent { SettingsPage(state, {}, {}, { imports++ }, { exports++ }) }
         compose.onNodeWithText("OPML をインポート").performClick()
-        assertEquals(1, imports)
-        compose.onNodeWithContentDescription("番組一覧のメニュー").performClick()
         compose.onNodeWithText("OPML をエクスポート").performClick()
-        assertEquals(1, exports)
+        assertEquals(1, imports); assertEquals(1, exports)
     }
 
     @Test
     fun emptyLibraryCanImportButCannotExport(): Unit {
-        compose.setContent { PodcastApp() }
-        compose.onNodeWithContentDescription("番組一覧のメニュー").performClick()
+        compose.setContent { SettingsPage(PodcastUiState(), {}, {}, {}, {}) }
         compose.onNodeWithText("OPML をインポート").assertIsEnabled()
         compose.onNodeWithText("OPML をエクスポート").assertIsNotEnabled()
     }

@@ -8,9 +8,14 @@ data class PlaybackUi(
     val durationMs: Long = 0,
     val speed: Float = 1f,
     val connected: Boolean = false,
+    val hasPrevious: Boolean = false,
+    val hasNext: Boolean = false,
 )
 
 data class PodcastUiState(
+    val defaultQueueId: String = "default",
+    val wifiOnly: Boolean = false,
+    val refreshHours: Int = 1,
     val library: Library = Library(),
     val results: List<PodcastCandidate> = emptyList(),
     val searching: Boolean = false,
@@ -35,6 +40,12 @@ data class PodcastUiState(
 )
 
 sealed interface PodcastAction {
+    data class WifiOnly(val enabled: Boolean) : PodcastAction
+    data class RefreshInterval(val hours: Int) : PodcastAction
+    data class DefaultQueue(val id: String) : PodcastAction
+    data class QuickQueue(val episodeId: String) : PodcastAction
+    data object PreviousEpisode : PodcastAction
+    data object NextEpisode : PodcastAction
     data class Search(val query: String) : PodcastAction
     data class Resolve(val url: String) : PodcastAction
     data class Subscribe(val candidate: PodcastCandidate) : PodcastAction

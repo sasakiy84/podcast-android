@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 private enum class HomeTab(val label: String) { Library("ポッドキャスト"), Episodes("エピソード"), Queues("キュー"), Search("検索") }
 
 @Composable
-fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastAction) -> Unit = {}, onImportOpml: () -> Unit = {}, onExportOpml: () -> Unit = {}, initialFeedUrl: String? = null, openFeedRequest: Int = 0): Unit {
+fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastAction) -> Unit = {}, initialFeedUrl: String? = null, openFeedRequest: Int = 0, onSettings: () -> Unit = {}): Unit {
     PodcastTheme {
         var tab by rememberSaveable { mutableStateOf(HomeTab.Library) }
         var selectedFeed by rememberSaveable { mutableStateOf<String?>(null) }
@@ -40,7 +40,6 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
         var episodeSnapshot by remember { mutableStateOf<Episode?>(null) }
         var episodeDetails by rememberSaveable { mutableStateOf<String?>(null) }
         val routeStates = rememberSaveableStateHolder()
-        var globalSpeedMenu by remember { mutableStateOf(false) }
         var libraryMenu by remember { mutableStateOf(false) }
         var unsubscribe by remember { mutableStateOf<Podcast?>(null) }
         LaunchedEffect(initialFeedUrl, openFeedRequest) { if (initialFeedUrl != null) selectedFeed = initialFeedUrl }
@@ -51,8 +50,8 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
         LaunchedEffect(state.message) {
             state.message?.let { message -> snackbar.showSnackbar(message); onAction(PodcastAction.ClearMessage) }
         }
-        BackHandler(enabled = playerExpanded || selected != null) {
-            if (playerExpanded) playerExpanded = false else selectedFeed = null
+        BackHandler(enabled = playerExpanded || selected != null || tab != HomeTab.Library) {
+            if (playerExpanded) playerExpanded = false else if (selectedFeed != null) selectedFeed = null else tab = HomeTab.Library
         }
         Scaffold(
             contentWindowInsets = WindowInsets.safeDrawing,
@@ -70,7 +69,7 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                                     if (state.refreshTotal > 0) Text("${state.refreshCompleted}/${state.refreshTotal}", style = MaterialTheme.typography.labelSmall)
                                 } else Icon(Icons.Default.Refresh, "番組を更新")
                             }
-                            IconButton(onClick = { selectedFeed = null; tab = HomeTab.Search }) { Icon(Icons.Default.Add, "ポッドキャストを追加") }
+
                         }
                         if (tab == HomeTab.Library && selected == null) Box {
                             IconButton(onClick = { libraryMenu = true }, enabled = !state.opmlBusy) {
@@ -79,10 +78,8 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                             }
                             DropdownMenu(expanded = libraryMenu, onDismissRequest = { libraryMenu = false }) {
                                 PodcastSort.entries.forEach { sort -> DropdownMenuItem(text = { Text(sort.label) }, onClick = { onAction(PodcastAction.SortPodcasts(sort)); libraryMenu = false }, trailingIcon = { if (state.podcastSort == sort) Icon(Icons.Default.Check, null) }) }
-                                DropdownMenuItem(text = { Text("再生速度") }, onClick = { libraryMenu = false; globalSpeedMenu = true })
                                 HorizontalDivider()
-                                DropdownMenuItem(text = { Text("OPML をインポート") }, onClick = { libraryMenu = false; onImportOpml() })
-                                DropdownMenuItem(text = { Text("OPML をエクスポート") }, enabled = state.library.podcasts.isNotEmpty(), onClick = { libraryMenu = false; onExportOpml() })
+                                DropdownMenuItem(text = { Text("設定") }, onClick = { libraryMenu = false; onSettings() })
                             }
                         }
                     },
@@ -111,23 +108,8 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                 }
             }
         }
-        if (globalSpeedMenu) PlaybackSpeedSheet(state, null, action = onAction, dismiss = { globalSpeedMenu = false })
-        if (playerExpanded && current != null) Dialog(onDismissRequest = { playerExpanded = false }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-            val view = LocalView.current
-            val window = (view.parent as? DialogWindowProvider)?.window
-            SideEffect {
-                window?.let {
-                    WindowCompat.getInsetsController(it, view).apply {
-                        isAppearanceLightStatusBars = false
-                        isAppearanceLightNavigationBars = false
-                    }
-                }
-            }
-            PodcastTheme(dark = true) {
-                Surface(Modifier.fillMaxSize()) {
-                    PlayerPage(current, state, onAction, { playerExpanded = false }, { playerExpanded = false; queueEpisode = current.id }, { playerExpanded = false; selectedFeed = null; tab = HomeTab.Queues })
-                }
-            }
+        if (playerExpanded && current != null) PlayerSheet(onDismiss = { playerExpanded = false }) { close ->
+            PlayerPage(current, state, onAction, close, { close(); queueEpisode = current.id }, { close(); selectedFeed = null; tab = HomeTab.Queues })
         }
         (knownEpisodes[episodeDetails] ?: episodeSnapshot?.takeIf { it.id == episodeDetails && state.library.podcasts.any { p -> p.feedUrl == it.feedUrl } })?.let { episode ->
             LaunchedEffect(episode.id) { onAction(PodcastAction.LoadDescription(episode.id)); onAction(PodcastAction.LoadChapters(episode.id)) }

@@ -98,6 +98,20 @@ class PodcastRepository(private val context: Context, private val directory: Pod
         failed
     }
 
+    suspend fun quickQueue(id: String): Unit = withContext(Dispatchers.IO) { mutex.withLock {
+        val queueId = settings.defaultQueue.takeIf { id -> store.queues().any { it.id == id } } ?: "default"
+        settings.setDefaultQueue(queueId)
+        if (store.queues().none { it.id == queueId }) store.saveQueue(queueId, "あとで聴く")
+        require(!store.progress(id).completed) { "未再生に戻してから追加してください。" }
+        store.addToQueue(queueId, id); publish()
+    } }
+    suspend fun setWifiOnly(enabled: Boolean): Unit = withContext(Dispatchers.IO) { mutex.withLock {
+        settings.setWifiOnly(enabled)
+        // Recreate outstanding requests so a newly enabled restriction takes effect immediately.
+        val pending = downloads().filterValues { it.status != DownloadStatus.Complete }.keys.mapNotNull(store::episode)
+        pending.forEach { downloadStorage.remove(it.id); downloadStorage.enqueue(it) }
+        publish()
+    } }
     suspend fun loadMoreHistory(): Unit = withContext(Dispatchers.IO) { mutex.withLock { historyLimit += 150; publish() } }
     suspend fun loadChapters(id: String): List<EpisodeChapter> = withContext(Dispatchers.IO) {
         val episode = mutex.withLock { store.episode(id) } ?: return@withContext emptyList()
@@ -171,7 +185,7 @@ class PodcastRepository(private val context: Context, private val directory: Pod
     }
     suspend fun moveInQueue(queueId: String, episodeId: String, direction: Int): Unit = withContext(Dispatchers.IO) { mutex.withLock { store.moveInQueue(queueId, episodeId, direction); publish() } }
     suspend fun saveRule(rule: QueueRule, applyExisting: Boolean): Unit = withContext(Dispatchers.IO) {
-        mutex.withLock { store.saveRule(rule, applyExisting); publish() }
+        mutex.withLock { if (rule.queueId == "default" && store.queues().none { it.id == "default" }) store.saveQueue("default", "あとで聴く"); store.saveRule(rule, applyExisting); publish() }
         configureBackgroundSync()
         processAutomaticDownloads()
     }
@@ -184,7 +198,7 @@ class PodcastRepository(private val context: Context, private val directory: Pod
         configureBackgroundSync()
     }
 
-    suspend fun configureBackgroundSync(): Unit = withContext(Dispatchers.IO) { PodcastSyncJob.schedule(context, store.needsBackgroundSync() || store.library().podcasts.any { settings.options(it.feedUrl).notifications }) }
+    suspend fun configureBackgroundSync(): Unit = withContext(Dispatchers.IO) { PodcastSyncJob.schedule(context, store.library().podcasts.isNotEmpty(), settings.refreshHours) }
 
     suspend fun processAutomaticDownloads(): Unit = withContext(Dispatchers.IO) {
         for (id in store.automaticDownloadIds()) {

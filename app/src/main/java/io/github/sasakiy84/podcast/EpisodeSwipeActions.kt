@@ -39,7 +39,7 @@ internal fun EpisodeSwipeActions(episode: Episode, state: PodcastUiState, action
     fun close(): Unit { offset = 0f; swipes.openId = null }
     Box(Modifier.fillMaxWidth().semantics { contentDescription = "エピソード操作: ${episode.title}" }) {
         if (animated > 0f) Row(Modifier.matchParentSize(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { close(); queue() }, modifier = Modifier.width(72.dp).fillMaxHeight().semantics { contentDescription = "キューに追加: ${episode.title}" }) {
+            TextButton(onClick = { close(); action(PodcastAction.QuickQueue(episode.id)) }, modifier = Modifier.width(72.dp).fillMaxHeight().semantics { contentDescription = "キューに追加: ${episode.title}" }) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.AutoMirrored.Filled.QueueMusic, null); Text("キュー", fontSize = 11.sp) }
             }
         }

@@ -47,6 +47,9 @@ class PodcastScreenshotTest {
     @Config(qualifiers = "ja-w360dp-h800dp-night")
     fun captureDarkScreens(): Unit = captureAll("dark")
 
+    @Test fun captureSettingsLight(): Unit { compose.setContent { SettingsPage(base.copy(wifiOnly = true, refreshHours = 6), {}, {}, {}, {}) }; screenshot("light", "49-settings") }
+    @Test @Config(qualifiers = "ja-w360dp-h800dp-night") fun captureSettingsDark(): Unit { compose.setContent { SettingsPage(base.copy(wifiOnly = true, refreshHours = 6), {}, {}, {}, {}) }; screenshot("dark", "49-settings") }
+
     private fun captureAll(theme: String): Unit {
         compose.setContent { PodcastApp(ui.value) }
         fun shot(name: String): Unit = screenshot(theme, name)
@@ -63,7 +66,7 @@ class PodcastScreenshotTest {
         replace(base)
         icon("番組一覧のメニュー")
         shot("37-opml-menu")
-        text("OPML をインポート")
+        text("設定")
         icon(shows[0].title)
         shot("02-podcast-details")
         text("購読元")
@@ -103,7 +106,6 @@ class PodcastScreenshotTest {
         compose.onNodeWithContentDescription("エピソード詳細: ${episodes[2].title}").performTouchInput { swipeRight() }
         shot("42-swipe-right")
         icon("キューに追加: ${episodes[2].title}")
-        text("完了")
         icon("エピソード詳細: ${episodes[0].title}")
         shot("07-episode-details")
         icon("コピーする項目")
@@ -134,12 +136,15 @@ class PodcastScreenshotTest {
         icon("自動追加ルールを編集")
         shot("16-edit-rule")
         text("キャンセル")
-        compose.onNodeWithText("番組の自動追加を設定").performScrollTo().performClick()
-        shot("17-new-rule")
-        compose.onNode(hasText(shows[0].title) and hasAnyAncestor(isDialog())).performClick()
+        tab("ポッドキャスト")
+        icon(shows[0].title)
+        compose.onNodeWithText("キューへの自動追加").performScrollTo().performClick()
         shot("18-rule-podcast-picker")
-        text(shows[1].title)
+        text("技術")
+        shot("17-new-rule")
         text("キャンセル")
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        tab("キュー")
         icon("キュー一覧に戻る")
         text("英語学習")
         shot("19-empty-queue-details")

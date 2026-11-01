@@ -4,6 +4,8 @@ package io.github.sasakiy84.podcast
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
@@ -86,8 +88,7 @@ internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -
                         }
                     }
                 }
-                item { OutlinedButton(onClick = { newRule = true }, shape = RoundedCornerShape(8.dp), enabled = state.library.podcasts.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("番組の自動追加を設定") } }
-                if (state.library.podcasts.isEmpty()) item { Text("先にポッドキャストを登録してください。", style = MaterialTheme.typography.bodySmall) }
+
             }
             item { Text("${queue.episodeIds.size} エピソード", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)) }
             if (queue.episodeIds.isEmpty()) item { Text("エピソードはまだありません", modifier = Modifier.padding(vertical = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -135,8 +136,8 @@ internal fun QueueMembershipDialog(episode: Episode, library: Library, action: (
     QueueFormSheet("キューに追加・編集", dismiss, dismiss, true, "完了", showCancel = false) {
         Text(episode.title, style = MaterialTheme.typography.titleSmall)
         if (completed) Text("再生済みの回は、詳細画面で未再生に戻してから追加できます。")
-        for (queue in library.queues) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = episode.id in queue.episodeIds, onCheckedChange = { action(PodcastAction.QueueMembership(queue.id, episode.id, it)) }, enabled = !completed)
+        for (queue in library.queues) Row(Modifier.fillMaxWidth().toggleable(value = episode.id in queue.episodeIds, enabled = !completed, role = Role.Checkbox, onValueChange = { action(PodcastAction.QueueMembership(queue.id, episode.id, it)) }), verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = episode.id in queue.episodeIds, onCheckedChange = null, enabled = !completed)
             Text(queue.name, modifier = Modifier.weight(1f))
         }
         OutlinedTextField(name, { name = it }, label = { Text("新しいキュー名") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -145,7 +146,7 @@ internal fun QueueMembershipDialog(episode: Episode, library: Library, action: (
 }
 
 @Composable
-private fun QueueRuleDialog(queue: PlaybackQueue, existing: QueueRule?, library: Library, dismiss: () -> Unit, save: (QueueRule, Boolean) -> Unit): Unit {
+internal fun QueueRuleDialog(queue: PlaybackQueue, existing: QueueRule?, library: Library, dismiss: () -> Unit, save: (QueueRule, Boolean) -> Unit): Unit {
     var feed by remember { mutableStateOf(existing?.feedUrl ?: library.podcasts.firstOrNull()?.feedUrl.orEmpty()) }
     var include by remember { mutableStateOf(existing?.includeWords.orEmpty()) }
     var exclude by remember { mutableStateOf(existing?.excludeWords.orEmpty()) }
@@ -155,24 +156,19 @@ private fun QueueRuleDialog(queue: PlaybackQueue, existing: QueueRule?, library:
     var apply by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     QueueFormSheet("番組の自動追加", dismiss, { save(QueueRule(queue.id, feed, include, exclude, all, download, enabled), apply); dismiss() }, feed.isNotBlank()) {
-        Box {
-            OutlinedButton(onClick = { menu = true }, shape = RoundedCornerShape(8.dp), enabled = existing == null, modifier = Modifier.fillMaxWidth()) { Text(library.podcasts.firstOrNull { it.feedUrl == feed }?.title ?: "番組を選択", maxLines = 2, overflow = TextOverflow.Ellipsis) }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                library.podcasts.forEach { podcast -> DropdownMenuItem(text = { Text(podcast.title) }, onClick = { feed = podcast.feedUrl; menu = false }) }
-            }
-        }
+        CopyableText(library.podcasts.firstOrNull { it.feedUrl == feed }?.title.orEmpty(), style = MaterialTheme.typography.titleMedium)
         ToggleRow("新着を自動追加", enabled) { enabled = it }
         OutlinedTextField(include, { include = it }, label = { Text("含む語（カンマ区切り）") }, placeholder = { Text("空欄ならすべて") }, modifier = Modifier.fillMaxWidth(), maxLines = 3)
-        Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(all, { all = it }); Text("すべての語に一致", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium) }
+        Row(Modifier.fillMaxWidth().toggleable(all, role = Role.Checkbox, onValueChange = { all = it }), verticalAlignment = Alignment.CenterVertically) { Checkbox(all, null); Text("すべての語に一致", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium) }
         OutlinedTextField(exclude, { exclude = it }, label = { Text("除外する語（カンマ区切り）") }, modifier = Modifier.fillMaxWidth(), maxLines = 3)
         Text("タイトル・説明から検索", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         ToggleRow("一致した回を自動ダウンロード", download) { download = it }
-        Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(apply, { apply = it }); Text("既存の未再生にも追加", Modifier.weight(1f)) }
+        Row(Modifier.fillMaxWidth().toggleable(apply, role = Role.Checkbox, onValueChange = { apply = it }), verticalAlignment = Alignment.CenterVertically) { Checkbox(apply, null); Text("既存の未再生にも追加", Modifier.weight(1f)) }
     }
 }
 
 @Composable
-private fun QueueFormSheet(title: String, dismiss: () -> Unit, save: () -> Unit, saveEnabled: Boolean, saveText: String = "保存", showCancel: Boolean = true, content: @Composable ColumnScope.() -> Unit): Unit {
+internal fun QueueFormSheet(title: String, dismiss: () -> Unit, save: () -> Unit, saveEnabled: Boolean, saveText: String = "保存", showCancel: Boolean = true, content: @Composable ColumnScope.() -> Unit): Unit {
     ModalBottomSheet(onDismissRequest = dismiss, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp), sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -187,8 +183,8 @@ private fun QueueFormSheet(title: String, dismiss: () -> Unit, save: () -> Unit,
 
 @Composable
 private fun ToggleRow(label: String, checked: Boolean, change: (Boolean) -> Unit): Unit {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.fillMaxWidth().toggleable(checked, role = Role.Switch, onValueChange = change), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Switch(checked = checked, onCheckedChange = change)
+        Switch(checked = checked, onCheckedChange = null)
     }
 }

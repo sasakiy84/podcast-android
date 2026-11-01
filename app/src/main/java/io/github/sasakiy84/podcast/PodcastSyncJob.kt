@@ -40,13 +40,13 @@ class PodcastSyncJob : JobService() {
 
     companion object {
         private const val JOB_ID = 7301
-        fun schedule(context: Context, enabled: Boolean): Unit {
+        fun schedule(context: Context, enabled: Boolean, hours: Int = 1): Unit {
             val scheduler = context.getSystemService(JobScheduler::class.java)
             if (!enabled) { scheduler.cancel(JOB_ID); return }
-            if (scheduler.getPendingJob(JOB_ID) != null) return
+            if (scheduler.getPendingJob(JOB_ID)?.intervalMillis == TimeUnit.HOURS.toMillis(hours.toLong())) return
             val job = JobInfo.Builder(JOB_ID, ComponentName(context, PodcastSyncJob::class.java))
                 .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                .setPeriodic(TimeUnit.HOURS.toMillis(1))
+                .setPeriodic(TimeUnit.HOURS.toMillis(hours.toLong()))
                 .setPersisted(true)
                 .build()
             if (scheduler.schedule(job) != JobScheduler.RESULT_SUCCESS) throw PodcastException("バックグラウンド更新を設定できませんでした。")

@@ -26,19 +26,15 @@ class MainActivity : ComponentActivity() {
     }
     override fun onNewIntent(intent: android.content.Intent): Unit { super.onNewIntent(intent); setIntent(intent); openedFeed = intent.getStringExtra("feed_url"); openRequest++ }
     private val model: PodcastsViewModel by viewModels()
-    private val importOpml = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(model::importOpml) }
-    private val exportOpml = registerForActivityResult(ActivityResultContracts.CreateDocument("text/x-opml+xml")) { uri -> uri?.let(model::exportOpml) }
 
     override fun onCreate(savedInstanceState: Bundle?): Unit {
         super.onCreate(savedInstanceState)
-        openedFeed = intent.getStringExtra("feed_url")
+        openedFeed = if (savedInstanceState == null) intent.getStringExtra("feed_url") else null
         enableEdgeToEdge()
         window.isNavigationBarContrastEnforced = false
         setContent {
             val state by model.state.collectAsState()
-            PodcastApp(state, ::dispatch, initialFeedUrl = openedFeed, openFeedRequest = openRequest,
-                onImportOpml = { importOpml.launch(arrayOf("*/*")) },
-                onExportOpml = { exportOpml.launch("podcasts.opml") })
+            PodcastApp(state, ::dispatch, onSettings = { startActivity(android.content.Intent(this, SettingsActivity::class.java)) }, initialFeedUrl = openedFeed, openFeedRequest = openRequest)
         }
     }
 }

@@ -28,16 +28,15 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
     private val podcastLoads = mutableSetOf<String>()
     private var searchGeneration: Long = 0
     private val preferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key?.startsWith("option:") == true || key == "speed" || key == "podcast_sort" || key?.startsWith("speed_for:") == true) updatePreferences()
+        if (key in setOf("wifi_only", "refresh_hours", "default_queue") || key?.startsWith("option:") == true || key == "speed" || key == "podcast_sort" || key?.startsWith("speed_for:") == true) updatePreferences()
     }
     private val connection = MediaController.Builder(application, SessionToken(application, ComponentName(application, PlaybackService::class.java))).buildAsync()
 
     init {
         repository.settings.listen(preferenceListener)
-        viewModelScope.launch { repository.library.collect { library -> mutableState.update { it.copy(library = library, podcastOptions = library.podcasts.associate { p -> p.feedUrl to repository.settings.options(p.feedUrl) }, podcastSort = repository.settings.sort, globalSpeed = repository.settings.globalSpeed, podcastSpeeds = library.podcasts.mapNotNull { p -> repository.settings.podcastSpeed(p.feedUrl)?.let { speed -> p.feedUrl to speed } }.toMap()) } } }
+        viewModelScope.launch { repository.library.collect { library -> mutableState.update { it.copy(library = library, defaultQueueId = repository.settings.defaultQueue, wifiOnly = repository.settings.wifiOnly, refreshHours = repository.settings.refreshHours, podcastOptions = library.podcasts.associate { p -> p.feedUrl to repository.settings.options(p.feedUrl) }, podcastSort = repository.settings.sort, globalSpeed = repository.settings.globalSpeed, podcastSpeeds = library.podcasts.mapNotNull { p -> repository.settings.podcastSpeed(p.feedUrl)?.let { speed -> p.feedUrl to speed } }.toMap()) } } }
         viewModelScope.launch {
             runOperation { repository.load(); repository.configureBackgroundSync() }
-            if (repository.library.value.podcasts.isNotEmpty()) refresh()
             while (true) {
                 delay(2000)
                 if (repository.library.value.downloads.values.any { it.status == DownloadStatus.Running || it.status == DownloadStatus.Waiting }) {
@@ -65,6 +64,12 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
 
     fun dispatch(action: PodcastAction): Unit {
         when (action) {
+            is PodcastAction.QuickQueue -> viewModelScope.launch { runOperation { repository.quickQueue(action.episodeId) } }.let { }
+            is PodcastAction.DefaultQueue -> { repository.settings.setDefaultQueue(action.id); updatePreferences() }
+            is PodcastAction.WifiOnly -> viewModelScope.launch { runOperation { repository.setWifiOnly(action.enabled); updatePreferences() } }.let { }
+            is PodcastAction.RefreshInterval -> viewModelScope.launch { runOperation { repository.settings.setRefreshHours(action.hours); repository.configureBackgroundSync(); updatePreferences() } }.let { }
+            PodcastAction.PreviousEpisode -> controller?.let { player -> if (player.hasPreviousMediaItem()) { val target = player.getMediaItemAt(player.previousMediaItemIndex).mediaId; viewModelScope.launch { runOperation { repository.updateProgress(target, ListeningProgress(), resetCompletion = true); player.seekToPreviousMediaItem() } } }; Unit } ?: Unit
+            PodcastAction.NextEpisode -> controller?.let { if (it.hasNextMediaItem()) it.seekToNextMediaItem() } ?: Unit
             is PodcastAction.Search -> search(action.query, false)
             is PodcastAction.Resolve -> search(action.url, true)
             is PodcastAction.Subscribe -> {
@@ -199,7 +204,7 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun updatePreferences(): Unit {
-        mutableState.update { current -> current.copy(podcastOptions = current.library.podcasts.associate { it.feedUrl to repository.settings.options(it.feedUrl) }, podcastSort = repository.settings.sort, globalSpeed = repository.settings.globalSpeed,
+        mutableState.update { current -> current.copy(defaultQueueId = repository.settings.defaultQueue, wifiOnly = repository.settings.wifiOnly, refreshHours = repository.settings.refreshHours, podcastOptions = current.library.podcasts.associate { it.feedUrl to repository.settings.options(it.feedUrl) }, podcastSort = repository.settings.sort, globalSpeed = repository.settings.globalSpeed,
             podcastSpeeds = current.library.podcasts.mapNotNull { p -> repository.settings.podcastSpeed(p.feedUrl)?.let { p.feedUrl to it } }.toMap()) }
     }
 
@@ -276,7 +281,7 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
         val player = controller ?: return
         val id = player.currentMediaItem?.mediaId
         mutableState.update { it.copy(playback = PlaybackUi(id, player.playWhenReady && player.playbackState != Player.STATE_ENDED, player.playbackState == Player.STATE_BUFFERING,
-            player.currentPosition.coerceAtLeast(0), player.duration.coerceAtLeast(0), player.playbackParameters.speed, true)) }
+            player.currentPosition.coerceAtLeast(0), player.duration.coerceAtLeast(0), player.playbackParameters.speed, true, player.hasPreviousMediaItem(), player.hasNextMediaItem())) }
     }
 
     private suspend fun runOperation(block: suspend () -> Unit): String? {

@@ -17,7 +17,8 @@ internal class PodcastDownloadStorage(private val context: Context, private val 
                 .setTitle(episode.title).setDescription("Podcast Android")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_PODCASTS, "${episode.id}.audio")
-                .setAllowedOverMetered(true)
+                .setAllowedOverMetered(!PlaybackPreferences(context.getSharedPreferences("playback", Context.MODE_PRIVATE)).wifiOnly)
+                .setAllowedNetworkTypes(if (PlaybackPreferences(context.getSharedPreferences("playback", Context.MODE_PRIVATE)).wifiOnly) DownloadManager.Request.NETWORK_WIFI else DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
                 .setAllowedOverRoaming(false)
             store.saveDownload(episode.id, manager.enqueue(request))
     }

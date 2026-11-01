@@ -78,3 +78,18 @@ internal fun EpisodeCopyButton(episode: Episode, state: PodcastUiState): Unit {
         }
     }
 }
+
+@Composable
+internal fun NowPlayingChapter(episode: Episode, state: PodcastUiState, action: (PodcastAction) -> Unit): Unit {
+    val chapters = state.chapters[episode.id] ?: episode.chapters
+    val index = chapters.indexOfLast { it.startMs <= state.playback.positionMs }
+    val chapter = chapters.getOrNull(index) ?: return
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = { action(PodcastAction.PlayChapter(episode, chapters[(index - 1).coerceAtLeast(0)].startMs)) }, enabled = index > 0 && state.playback.connected) { Icon(Icons.Default.ChevronLeft, "前のチャプター") }
+        Column(Modifier.weight(1f)) {
+            Text(chapter.title, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
+            Text("${index + 1} / ${chapters.size} · ${formatTime((state.playback.positionMs - chapter.startMs).coerceAtLeast(0))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        IconButton(onClick = { action(PodcastAction.PlayChapter(episode, chapters[index + 1].startMs)) }, enabled = index < chapters.lastIndex && state.playback.connected) { Icon(Icons.Default.ChevronRight, "次のチャプター") }
+    }
+}

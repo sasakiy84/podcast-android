@@ -34,7 +34,7 @@ class PodcastUxTest {
         row.performTouchInput { swipeRight() }
         compose.mainClock.advanceTimeBy(200)
         compose.onNodeWithContentDescription("キューに追加: ${episode.title}").performClick()
-        compose.onNodeWithText("新しいキュー名").assertIsDisplayed()
+        assertEquals(PodcastAction.QuickQueue(episode.id), actions.last())
     }
 
     @Test fun verticalScrollingDoesNotMarkAnEpisodePlayed(): Unit {

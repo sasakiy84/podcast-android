@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -68,6 +69,7 @@ internal fun PodcastDetails(podcast: Podcast, state: PodcastUiState, action: (Po
     val swipes = remember { EpisodeSwipeState() }
     val list = rememberLazyListState()
     var settingsMenu by remember { mutableStateOf(false) }
+    var automation by remember { mutableStateOf(false) }
     var sourceMenu by remember { mutableStateOf(false) }
     var speedMenu by remember { mutableStateOf(false) }
     LaunchedEffect(podcast.feedUrl, state.library.episodeCounts[podcast.feedUrl], state.library.latestEpisodes[podcast.feedUrl]) { action(PodcastAction.LoadPodcast(podcast.feedUrl)) }
@@ -97,11 +99,13 @@ internal fun PodcastDetails(podcast: Podcast, state: PodcastUiState, action: (Po
                 Switch(checked = podcast.feedUrl in state.library.autoDownloadFeeds, onCheckedChange = { action(PodcastAction.AutoDownloadFeed(podcast.feedUrl, it)) })
             }
         }
+        item { TextButton(onClick = { automation = true }) { Text("キューへの自動追加") } }
         item { Text("エピソード", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
         if (episodes.isEmpty()) item { Text("公開されている音声エピソードはありません。") }
         items(episodes, key = { it.id }) { EpisodeCard(it, podcast, state, action, details, onQueue = queue, swipes = swipes, showPodcastTitle = false) }
         if (page != null && episodes.size < page.total) item { TextButton(onClick = { action(PodcastAction.LoadPodcast(podcast.feedUrl, true)) }, modifier = Modifier.fillMaxWidth()) { Text("さらに表示") } }
     }
+    if (automation) PodcastAutomationSheet(podcast, state, action) { automation = false }
     if (settingsMenu) PodcastSettingsSheet(podcast, state, action) { settingsMenu = false }
     if (sourceMenu) PodcastSourceSheet(podcast) { sourceMenu = false }
     if (speedMenu) PlaybackSpeedSheet(state, podcast.feedUrl, podcastScope = true, action = action, dismiss = { speedMenu = false })
@@ -167,6 +171,7 @@ internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiSt
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { action(PodcastAction.QuickQueue(episode.id)) }, enabled = progress?.completed != true) { Icon(if (state.library.queues.any { it.id == state.defaultQueueId && episode.id in it.episodeIds }) Icons.Default.Check else Icons.AutoMirrored.Filled.QueueMusic, "デフォルトキューに追加: ${episode.title}", Modifier.size(20.dp)) }
                 CompactDownloadButton(episode, state.library.downloads[episode.id], action)
                 IconButton(onClick = { swipes.openId = null; action(PodcastAction.Play(episode)) }, enabled = state.playback.connected, modifier = Modifier.size(48.dp)) {
                     Icon(if (playing) Icons.Default.PauseCircleOutline else Icons.Default.PlayCircleOutline,

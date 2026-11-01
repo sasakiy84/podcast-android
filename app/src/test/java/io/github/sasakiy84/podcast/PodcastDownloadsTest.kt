@@ -161,4 +161,21 @@ class PodcastDownloadsTest {
         } finally { player.release() }
     }
 
+    @Test fun wifiRestrictionRecreatesOutstandingRequestsAndPreservesCompletedFiles(): Unit = runBlocking {
+        repository.download(episode)
+        val old = requireNotNull(repository.store.downloadId(episode.id))
+        repository.setWifiOnly(true)
+        val restricted = requireNotNull(repository.store.downloadId(episode.id))
+        assertNotEquals(old, restricted)
+        val request = shadowOf(manager).getRequest(restricted)
+        assertEquals(DownloadManager.Request.NETWORK_WIFI, org.robolectric.util.ReflectionHelpers.getField<Int>(request, "mAllowedNetworkTypes"))
+        assertFalse(org.robolectric.util.ReflectionHelpers.getField<Boolean>(request, "mMeteredAllowed"))
+        val shadow: ShadowDownloadManager.ShadowRequest = Shadow.extract(request)
+        shadow.setStatus(DownloadManager.STATUS_SUCCESSFUL)
+        file.parentFile?.mkdirs(); file.writeBytes(byteArrayOf(1))
+        repository.load(); repository.setWifiOnly(false)
+        assertEquals(restricted, repository.store.downloadId(episode.id))
+        assertTrue(file.exists())
+    }
+
 }

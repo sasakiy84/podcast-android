@@ -24,7 +24,14 @@ internal fun synchronizePlaybackQueue(player: Player, repository: PodcastReposit
 private fun synchronizeQueueContents(player: Player, repository: PodcastRepository, library: Library, active: String): Unit {
     val queue = library.queues.firstOrNull { it.id == active }
     val current = player.currentMediaItem?.mediaId
-    val desired = queuePlaybackIds(queue, current, library)
+    // Retain the stopped final item and its previous history. Rebuilding only the
+    // prefix here would replay already completed episodes after the queue ends.
+    if (current != null && library.progress[current]?.completed == true && !player.isPlaying) {
+        if (queue?.episodeIds.orEmpty().none { library.progress[it]?.completed != true }) repository.preferences.edit { remove("active_queue") }
+        return
+    }
+    val past = (0 until player.currentMediaItemIndex.coerceAtLeast(0)).map { player.getMediaItemAt(it).mediaId }.filter { id -> library.episodes.any { it.id == id } }.takeLast(50)
+    val desired = (past + queuePlaybackIds(queue, current, library)).distinct()
     if (queue == null || desired.isEmpty()) repository.preferences.edit { remove("active_queue") }
     val existing = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
     if (current != null && current in existing && current in desired) {

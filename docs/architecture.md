@@ -12,3 +12,7 @@
 新着通知は番組別の既定値がオフ。オンにすると Android の通知権限を要求する。初回の取得では過去回の通知を出さず、以降の新着を番組単位でまとめる。通知だけをオンにした番組も定期更新の対象になる。
 
 変更後は `./gradlew testDebugUnitTest lintDebug assembleDebug`。再生・保存の回帰は `EpisodeFeaturesTest`、操作は `PlayerInteractionTest` / `PodcastUxTest`、画面の明暗・文字拡大は `PodcastScreenshotTest` で確認する。実 RSS / OPML の私的データはテストコードやリポジトリに含めない。
+
+`MainActivity` は単一の再生セッションとタブ・番組詳細を保持し、サブ画面では BackHandler で上位へ戻る。アプリ終了は番組一覧のルートだけに委ねる。設定は `SettingsActivity` に分け、OS の Activity バックスタックで戻る。再生画面は `PlayerSheet` の Material ModalBottomSheet とし、独自の距離判定による即時削除は使わない。標準のアンカー・速度・ネストスクロール・hide アニメーションで開閉する。
+
+起動時はDBを表示するだけでRSSを更新しない。全購読を対象に永続 JobScheduler を設定し、設定した間隔で更新する。明示した更新操作やOPML取り込み直後の取得は即時に実行する。Wi-Fi 制限の変更は未完了の DownloadManager リクエストを再作成して適用する。
