@@ -48,7 +48,7 @@ object PodcastOpml {
                             val title = parser.attribute("title")?.trim()?.takeIf(String::isNotEmpty)
                                 ?: parser.attribute("text")?.trim()?.takeIf(String::isNotEmpty)
                                 ?: podcastUrl(url).host
-                            podcasts[url] = Podcast(url, title)
+                            podcasts[url] = Podcast(url, title, website = parser.attribute("htmlUrl")?.let { absoluteUrl(url, it) }.orEmpty())
                         }
                     }
                 } else if (parser.eventType == XmlPullParser.END_TAG) {
@@ -77,7 +77,8 @@ object PodcastOpml {
                 .attribute(null, "text", podcast.title)
                 .attribute(null, "title", podcast.title)
                 .attribute(null, "xmlUrl", podcast.feedUrl)
-                .endTag(null, "outline")
+            if (podcast.website.isNotBlank()) xml.attribute(null, "htmlUrl", podcast.website)
+            xml.endTag(null, "outline")
         }
         xml.endTag(null, "body").endTag(null, "opml")
         xml.endDocument()

@@ -12,26 +12,30 @@ import java.util.Locale
 
 /** Parse RSS and Atom without loading external entities or trusting embedded HTML. */
 object FeedParser {
-    fun parse(xml: String, feedUrl: String, baseUrl: String = feedUrl): PodcastFeed {
-        if (xml.contains("<!DOCTYPE", ignoreCase = true) || xml.contains("<!ENTITY", ignoreCase = true)) {
-            throw PodcastException("外部エンティティを含むフィードには対応していません。")
-        }
+    private val textContainers = setOf("title", "author", "name", "description", "subtitle", "summary", "content", "encoded", "guid", "id", "pubdate", "published", "updated", "duration", "url", "managingeditor")
+    fun parse(xml: String, feedUrl: String, baseUrl: String = feedUrl): PodcastFeed = parse(StringReader(xml), feedUrl, baseUrl)
+
+    fun parse(reader: java.io.Reader, feedUrl: String, baseUrl: String = feedUrl): PodcastFeed {
         try {
             val parser = Xml.newPullParser()
             parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
-            parser.setInput(StringReader(xml))
+            parser.setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL, false)
+            parser.setInput(reader)
             val path = mutableListOf<String>()
             var title = ""
             var author = ""
             var description = ""
             var artwork = ""
+            var website = ""
             var validRoot = false
+            var closedRoot = false
             var entry: MutableMap<String, String>? = null
             val episodes = mutableListOf<Episode>()
             val texts = mutableListOf<StringBuilder>()
             var event = parser.eventType
             while (event != XmlPullParser.END_DOCUMENT) {
                 when (event) {
+                    XmlPullParser.DOCDECL -> throw PodcastException("外部エンティティを含むフィードには対応していません。")
                     XmlPullParser.START_TAG -> {
                         val tag = parser.name.lowercase(Locale.ROOT)
                         path.add(tag)
@@ -40,6 +44,9 @@ object FeedParser {
                         if (path.size == 1) validRoot = tag in listOf("rss", "feed", "rdf")
                         if (tag == "item" || tag == "entry") entry = mutableMapOf()
                         val current = entry
+                        if (tag == "link" && current == null && parser.getAttributeValue(null, "rel").orEmpty() in listOf("", "alternate")) {
+                            absoluteUrl(baseUrl, parser.getAttributeValue(null, "href").orEmpty()).takeIf { it.isNotBlank() }?.let { website = it }
+                        }
                         if (tag == "enclosure" || (tag == "link" && parser.getAttributeValue(null, "rel") == "enclosure")) {
                             val url = parser.getAttributeValue(null, "url") ?: parser.getAttributeValue(null, "href") ?: ""
                             val type = parser.getAttributeValue(null, "type").orEmpty()
@@ -83,20 +90,24 @@ object FeedParser {
                             when {
                                 tag == "title" && "image" !in path -> if (value.isNotBlank()) title = value
                                 tag in listOf("author", "managingeditor", "name") -> if (value.isNotBlank()) author = plainText(value)
+                                tag == "link" && value.isNotBlank() -> website = absoluteUrl(baseUrl, value)
                                 tag == "description" || tag == "subtitle" -> if (value.isNotBlank()) description = plainText(value)
                                 tag == "url" && "image" in path -> artwork = absoluteUrl(baseUrl, value)
                             }
                         }
                         if (path.isNotEmpty()) path.removeAt(path.lastIndex)
-                        texts.lastOrNull()?.append(' ')?.append(value)
+                        if (path.isEmpty()) closedRoot = true
+                        if (path.any { it in textContainers }) texts.lastOrNull()?.append(' ')?.append(value)
                     }
                 }
                 event = parser.nextToken()
             }
-            if (!validRoot || title.isBlank()) throw PodcastException("このURLにポッドキャストの RSS / Atom が見つかりません。")
-            return PodcastFeed(Podcast(feedUrl, plainText(title), author, artwork, description), episodes.distinctBy { it.id }.sortedByDescending { it.published })
+            if (!validRoot || !closedRoot || title.isBlank()) throw PodcastException("このURLにポッドキャストの RSS / Atom が見つかりません。")
+            return PodcastFeed(Podcast(feedUrl, plainText(title), author, artwork, description, website), episodes.distinctBy { it.id }.sortedByDescending { it.published })
         } catch (error: PodcastException) {
             throw error
+        } catch (_: IndexOutOfBoundsException) {
+            throw PodcastException("フィードを読み取れません。RSS / Atom のURLを確認してください。")
         } catch (_: org.xmlpull.v1.XmlPullParserException) {
             throw PodcastException("フィードを読み取れません。RSS / Atom のURLを確認してください。")
         }

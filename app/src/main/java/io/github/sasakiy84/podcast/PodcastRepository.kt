@@ -7,6 +7,9 @@ import android.net.Uri
 import android.os.Environment
 import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -14,15 +17,23 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
-class PodcastApplication : Application() {
+class PodcastApplication : Application(), coil.ImageLoaderFactory {
+    override fun newImageLoader(): coil.ImageLoader = coil.ImageLoader.Builder(this)
+        .memoryCache { coil.memory.MemoryCache.Builder(this).maxSizePercent(0.12).build() }
+        .diskCache { coil.disk.DiskCache.Builder().directory(cacheDir.resolve("image_cache")).maxSizeBytes(128L * 1024 * 1024).build() }
+        .respectCacheHeaders(false)
+        .crossfade(false)
+        .build()
     val repository: PodcastRepository by lazy { PodcastRepository(this) }
 
 }
 
-class PodcastRepository(private val context: Context) {
+class PodcastRepository(private val context: Context, private val directory: PodcastDirectory = PodcastDirectory(), private val fetchFeed: (String) -> PodcastFeed = directory::fetchFeed) {
     val store: PodcastStore = PodcastStore(context)
     val preferences: android.content.SharedPreferences = context.getSharedPreferences("playback", Context.MODE_PRIVATE)
-    private val directory = PodcastDirectory()
+    val settings = PlaybackPreferences(preferences)
+    private var episodeLimit = 1000
+    private val refreshPermits = kotlinx.coroutines.sync.Semaphore(3)
     private val manager = context.getSystemService(DownloadManager::class.java)
     private val mutex = Mutex()
     private val mutableLibrary = MutableStateFlow(Library())
@@ -59,22 +70,48 @@ class PodcastRepository(private val context: Context) {
     }
 
     suspend fun subscribe(candidate: PodcastCandidate): Unit = withContext(Dispatchers.IO) {
-        val feed = directory.fetchFeed(candidate.podcast.feedUrl)
+        val feed = fetchFeed(candidate.podcast.feedUrl)
         mutex.withLock { store.saveFeed(feed); publish() }
         processAutomaticDownloads()
     }
 
-    suspend fun refresh(): List<String> = withContext(Dispatchers.IO) {
-        val failed = mutableListOf<String>()
-        for (podcast in store.library().podcasts) {
-            try {
-                val feed = directory.fetchFeed(podcast.feedUrl)
-                mutex.withLock { store.saveFeed(feed); publish() }
-            } catch (_: java.io.IOException) { failed += podcast.title }
+    suspend fun refresh(onProgress: (Int, Int) -> Unit = { _, _ -> }): List<String> = withContext(Dispatchers.IO) {
+        val podcasts = mutex.withLock { store.library().podcasts }
+        val completed = java.util.concurrent.atomic.AtomicInteger()
+        val permits = refreshPermits
+        var lastPublish = 0L
+        val failed = kotlinx.coroutines.coroutineScope {
+            podcasts.map { podcast ->
+                async {
+                    permits.withPermit {
+                        try {
+                            val feed = fetchFeed(podcast.feedUrl)
+                            mutex.withLock {
+                                if (store.podcast(podcast.feedUrl) != null) {
+                                    store.saveFeed(feed)
+                                    val now = android.os.SystemClock.elapsedRealtime()
+                                    if (now - lastPublish >= 750) { publish(); lastPublish = now }
+                                }
+                            }
+                            null
+                        } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+                        catch (_: java.io.IOException) { podcast.title }
+                        catch (_: IllegalArgumentException) { podcast.title }
+                        catch (_: android.database.SQLException) { podcast.title }
+                        finally { onProgress(completed.incrementAndGet(), podcasts.size) }
+                    }
+                }
+            }.awaitAll().filterNotNull()
         }
+        mutex.withLock { publish() }
         processAutomaticDownloads()
         failed
     }
+
+    suspend fun loadMoreEpisodes(): Unit = withContext(Dispatchers.IO) { mutex.withLock { episodeLimit += 500; publish() } }
+    suspend fun podcastEpisodes(feed: String, limit: Int): PodcastEpisodePage = withContext(Dispatchers.IO) { mutex.withLock { store.podcastEpisodes(feed, limit) } }
+    suspend fun episodeDescription(id: String): String = withContext(Dispatchers.IO) { mutex.withLock { store.episode(id)?.description.orEmpty() } }
+    suspend fun setFavorite(id: String, favorite: Boolean): Unit = withContext(Dispatchers.IO) { mutex.withLock { store.setFavorite(id, favorite); publish() } }
 
     suspend fun unsubscribe(podcast: Podcast): Unit = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -187,7 +224,7 @@ class PodcastRepository(private val context: Context) {
         return if (complete) Uri.fromFile(file) else episode.audioUrl.toUri()
     }
 
-    private fun publish(): Unit { mutableLibrary.value = store.library().copy(downloads = downloads()) }
+    private fun publish(): Unit { mutableLibrary.value = store.library(episodeLimit, preferences.getString("current", null)).copy(downloads = downloads()) }
 
     private fun downloadFile(id: String): File? = context.getExternalFilesDir(Environment.DIRECTORY_PODCASTS)?.let { File(it, "$id.audio") }
 

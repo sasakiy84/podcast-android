@@ -28,7 +28,7 @@ class PodcastScreenshotTest {
     private val directory = File(requireNotNull(System.getProperty("podcast.screenshotDir")), "all-screens")
     private val titles = listOf("MORNING\nNOTES", "TECH\nTABLE", "WORLD\nNEWS", "DEEP\nBREATH", "ENGLISH", "WEEKLY", "DESIGN", "SCIENCE", "DAILY")
     private val shows = titles.mapIndexed { i, title ->
-        Podcast("https://example.org/feed/$i", listOf("朝のノート", "技術のテーブル", "世界のニュース", "深呼吸ラジオ", "English Daily", "今週の話", "デザインの時間", "科学の窓", "日々のこと")[i], "音の便り", artwork(title, i), "日々の小さな発見を、ゆっくり話す番組です。毎週、新しいエピソードをお届けします。")
+        Podcast("https://example.org/feed/$i", listOf("朝のノート", "技術のテーブル", "世界のニュース", "深呼吸ラジオ", "English Daily", "今週の話", "デザインの時間", "科学の窓", "日々のこと")[i], "音の便り", artwork(title, i), "日々の小さな発見を、ゆっくり話す番組です。毎週、新しいエピソードをお届けします。", website = "https://example.org/show/$i")
     }
     private val episodes = listOf("静かな朝のつづき", "小さな習慣を見つける", "技術と暮らしの接点", "世界のニュースを振り返る", "週末のコーヒー", "言葉を学ぶ楽しさ").mapIndexed { i, title ->
         Episode("episode-$i", shows[if (i < 2) 0 else i - 1].feedUrl, title, "https://example.org/$i.mp3", "コーヒーを淹れながら、今日の予定を考えます。\n\n今回のテーマは、毎日の暮らしにある小さな発見。最近の出来事や読んだ本についても話しています。", 1_793_491_200_000L - i * 86_400_000L, (30 + i * 7) * 60_000L)
@@ -56,11 +56,22 @@ class PodcastScreenshotTest {
         fun replace(value: PodcastUiState): Unit { compose.runOnIdle { ui.value = value }; compose.waitForIdle() }
 
         shot("01-library")
+        replace(base.copy(podcastSort = PodcastSort.Updated))
+        shot("43-updated-order")
+        replace(base.copy(refreshing = true, refreshCompleted = 4, refreshTotal = 9))
+        shot("44-refresh-progress")
+        replace(base)
         icon("番組一覧のメニュー")
         shot("37-opml-menu")
         text("OPML をインポート")
         icon(shows[0].title)
         shot("02-podcast-details")
+        text("購読元")
+        shot("38-podcast-source")
+        icon("購読元を閉じる")
+        text("再生速度 1.0×")
+        shot("39-podcast-speed")
+        text("完了")
         icon("購読を解除")
         shot("03-unsubscribe-confirmation")
         text("キャンセル")
@@ -72,6 +83,17 @@ class PodcastScreenshotTest {
         shot("05-unplayed")
         text("ダウンロード")
         shot("06-downloads")
+        replace(base.copy(library = library.copy(favorites = setOf(episodes[0].id, episodes[2].id))))
+        compose.onNodeWithText("お気に入り").performScrollTo().performClick()
+        shot("40-favorites")
+        compose.onNodeWithText("ダウンロード").performScrollTo().performClick()
+        replace(base)
+        compose.onNodeWithContentDescription("エピソード詳細: ${episodes[0].title}").performTouchInput { swipeLeft() }
+        shot("41-swipe-left")
+        compose.onNodeWithContentDescription("エピソード詳細: ${episodes[2].title}").performTouchInput { swipeRight() }
+        shot("42-swipe-right")
+        icon("キューに追加: ${episodes[2].title}")
+        text("完了")
         icon("エピソード詳細: ${episodes[0].title}")
         shot("07-episode-details")
         text("キューに追加・編集")

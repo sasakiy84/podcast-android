@@ -10,7 +10,44 @@ data class WebResponse(val url: String, val body: String, val contentType: Strin
 
 /** Public endpoints only; subscription and listening data never leave the device. */
 class PodcastHttp {
-    fun get(input: String): WebResponse {
+    fun get(input: String): WebResponse = response(input) { connection, finalUrl ->
+        decoded(connection).use { raw ->
+            val bytes = raw.readNBytes(8 * 1024 * 1024 + 1)
+            if (bytes.size > 8 * 1024 * 1024) throw PodcastException("配信元の応答が大きすぎます。")
+            val type = connection.contentType.orEmpty()
+            val encoding = charset(type, bytes.take(256).toByteArray())
+            WebResponse(finalUrl.toASCIIString(), bytes.toString(encoding).removePrefix("\uFEFF"), type)
+        }
+    }
+
+    fun fetchFeed(input: String): PodcastFeed = response(input) { connection, finalUrl ->
+        decoded(connection).use { raw ->
+            val limited = LimitedFeedStream(raw).buffered()
+            limited.mark(512)
+            val prefix = limited.readNBytes(256)
+            limited.reset()
+            val reader = java.io.PushbackReader(java.io.InputStreamReader(limited, charset(connection.contentType.orEmpty(), prefix)), 1)
+            val first = reader.read()
+            if (first != -1 && first != 0xFEFF) reader.unread(first)
+            FeedParser.parse(reader, podcastUrl(input).toASCIIString(), finalUrl.toASCIIString())
+        }
+    }
+
+    private fun decoded(connection: HttpURLConnection): java.io.InputStream {
+        val input = connection.inputStream
+        return if (connection.contentEncoding.orEmpty().contains("gzip", true)) java.util.zip.GZIPInputStream(input) else input
+    }
+
+    private fun charset(type: String, prefix: ByteArray): java.nio.charset.Charset {
+        val encoding = Regex("charset=([^;\\s]+)", RegexOption.IGNORE_CASE).find(type)?.groupValues?.get(1)?.trim('"', '\'')
+            ?: Regex("encoding=[\"']([^\"']+)", RegexOption.IGNORE_CASE).find(prefix.toString(Charsets.ISO_8859_1))?.groupValues?.get(1)
+        return try {
+            encoding?.let(java.nio.charset.Charset::forName)
+                ?: if (prefix.take(2) in listOf(listOf(0xFF.toByte(), 0xFE.toByte()), listOf(0xFE.toByte(), 0xFF.toByte()))) Charsets.UTF_16 else Charsets.UTF_8
+        } catch (_: IllegalArgumentException) { throw PodcastException("配信元の文字コードに対応していません。") }
+    }
+
+    private fun <T> response(input: String, read: (HttpURLConnection, URI) -> T): T {
         var uri = podcastUrl(input)
         repeat(8) {
             val connection = uri.toURL().openConnection() as HttpURLConnection
@@ -18,49 +55,47 @@ class PodcastHttp {
                 connection.connectTimeout = 15_000
                 connection.readTimeout = 20_000
                 connection.instanceFollowRedirects = false
-                connection.setRequestProperty("User-Agent", "PodcastAndroid/0.2 (+https://github.com/sasakiy84/podcast-android)")
+                connection.setRequestProperty("User-Agent", "PodcastAndroid/0.5 (+https://github.com/sasakiy84/podcast-android)")
                 connection.setRequestProperty("Accept", "application/rss+xml, application/atom+xml, application/json, text/html, */*")
+                connection.setRequestProperty("Accept-Encoding", "gzip")
                 val code = connection.responseCode
                 if (code in listOf(301, 302, 303, 307, 308)) {
                     val location = connection.getHeaderField("Location") ?: throw PodcastException("転送先のURLを取得できません。")
                     uri = podcastUrl(uri.resolve(location).toString())
                 } else {
                     if (code !in 200..299) throw PodcastException("配信元に接続できませんでした（HTTP $code）。")
-                    val input = connection.inputStream
-                    val decoded = if (connection.contentEncoding.orEmpty().contains("gzip", ignoreCase = true)) java.util.zip.GZIPInputStream(input) else input
-                    val bytes = decoded.use { stream ->
-                        val output = java.io.ByteArrayOutputStream()
-                        val buffer = ByteArray(8192)
-                        while (true) {
-                            val size = stream.read(buffer)
-                            if (size < 0) break
-                            if (output.size() + size > 8 * 1024 * 1024) throw PodcastException("フィードが大きすぎるため読み取れません。")
-                            output.write(buffer, 0, size)
-                        }
-                        output.toByteArray()
-                    }
-                    val contentType = connection.contentType.orEmpty()
-                    val encoding = Regex("charset=([^;\\s]+)", RegexOption.IGNORE_CASE).find(contentType)?.groupValues?.get(1)?.trim('"', '\'')
-                        ?: Regex("encoding=[\"']([^\"']+)", RegexOption.IGNORE_CASE).find(bytes.take(200).toByteArray().toString(Charsets.ISO_8859_1))?.groupValues?.get(1)
-                    val charset = try { encoding?.let(java.nio.charset.Charset::forName) ?: Charsets.UTF_8 }
-                    catch (_: IllegalArgumentException) { throw PodcastException("配信元の文字コードに対応していません。") }
-                    return WebResponse(uri.toASCIIString(), bytes.toString(charset).removePrefix("\uFEFF"), contentType)
+                    return read(connection, uri)
                 }
             } finally { connection.disconnect() }
         }
         throw PodcastException("URL の転送が多すぎます。公式の番組URLを入力してください。")
     }
+
+    private class LimitedFeedStream(private val input: java.io.InputStream) : java.io.InputStream() {
+        private var count = 0L
+        private fun count(size: Int): Int {
+            if (size > 0) count += size
+            if (count > 64L * 1024 * 1024) throw PodcastException("フィードが大きすぎるため読み取れません（最大64MB）。")
+            return size
+        }
+        override fun read(): Int { val value = input.read(); count(if (value < 0) 0 else 1); return value }
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int = count(input.read(buffer, offset, length))
+        override fun close(): Unit = input.close()
+    }
 }
 
-class PodcastDirectory(private val request: (String) -> WebResponse = PodcastHttp()::get) {
+class PodcastDirectory(private val request: ((String) -> WebResponse)? = null) {
+    private val http = PodcastHttp()
+    private fun requestPage(url: String): WebResponse = request?.invoke(url) ?: http.get(url)
     fun search(query: String): List<PodcastCandidate> {
         if (query.isBlank()) return emptyList()
-        val body = request("https://itunes.apple.com/search?media=podcast&entity=podcast&country=JP&limit=40&term=${encode(query.trim())}").body
+        val body = requestPage("https://itunes.apple.com/search?media=podcast&entity=podcast&country=JP&limit=40&term=${encode(query.trim())}").body
         return appleResults(body)
     }
 
     fun fetchFeed(url: String): PodcastFeed {
-        val response = request(url)
+        if (request == null) return http.fetchFeed(url)
+        val response = requestPage(url)
         return FeedParser.parse(response.body, podcastUrl(url).toASCIIString(), response.url)
     }
 
@@ -69,11 +104,11 @@ class PodcastDirectory(private val request: (String) -> WebResponse = PodcastHtt
         if (uri.host.lowercase() in listOf("podcasts.apple.com", "itunes.apple.com", "geo.itunes.apple.com")) {
             val id = Regex("/id(\\d+)").find(uri.path)?.groupValues?.get(1)
                 ?: throw PodcastException("Apple Podcasts の番組URLを入力してください。")
-            val candidates = appleResults(request("https://itunes.apple.com/lookup?id=$id&entity=podcast").body)
+            val candidates = appleResults(requestPage("https://itunes.apple.com/lookup?id=$id&entity=podcast").body)
             if (candidates.isEmpty()) throw PodcastException("この番組の公開 RSS を取得できませんでした。")
             return candidates
         }
-        val response = request(uri.toASCIIString())
+        val response = requestPage(uri.toASCIIString())
         val body = response.body.trimStart()
         if (response.contentType.lowercase().contains("application/rss+xml") || response.contentType.lowercase().contains("application/atom+xml") || Regex("<(?:[A-Za-z0-9_]+:)?(?:rss|feed|rdf)\\b", RegexOption.IGNORE_CASE).containsMatchIn(body.take(4096))) {
             return listOf(PodcastCandidate(FeedParser.parse(body, uri.toASCIIString(), response.url).podcast, "RSS"))

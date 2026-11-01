@@ -36,6 +36,13 @@ data class PodcastUiState(
     val searched: Boolean = false,
     val refreshing: Boolean = false,
     val opmlBusy: Boolean = false,
+    val refreshCompleted: Int = 0,
+    val refreshTotal: Int = 0,
+    val podcastSort: PodcastSort = PodcastSort.Title,
+    val globalSpeed: Float = 1f,
+    val podcastSpeeds: Map<String, Float> = emptyMap(),
+    val podcastPages: Map<String, PodcastEpisodePage> = emptyMap(),
+    val descriptions: Map<String, String> = emptyMap(),
     val busyFeeds: Set<String> = emptySet(),
     val message: String? = null,
     val playback: PlaybackUi = PlaybackUi(),
@@ -57,7 +64,13 @@ sealed interface PodcastAction {
     data class Play(val episode: Episode) : PodcastAction
     data class Seek(val positionMs: Long) : PodcastAction
     data class Skip(val milliseconds: Long) : PodcastAction
-    data class Speed(val speed: Float) : PodcastAction
+    data class Speed(val speed: Float, val feedUrl: String? = null) : PodcastAction
+    data class UseGlobalSpeed(val feedUrl: String) : PodcastAction
+    data class SortPodcasts(val sort: PodcastSort) : PodcastAction
+    data class Favorite(val episodeId: String, val favorite: Boolean) : PodcastAction
+    data class LoadPodcast(val feedUrl: String, val more: Boolean = false) : PodcastAction
+    data class LoadDescription(val episodeId: String) : PodcastAction
+    data object LoadMoreEpisodes : PodcastAction
     data class Download(val episode: Episode) : PodcastAction
     data class RemoveDownload(val episode: Episode) : PodcastAction
     data class MarkPlayed(val episode: Episode, val completed: Boolean) : PodcastAction
@@ -73,11 +86,16 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
     val state: StateFlow<PodcastUiState> = mutableState
     private var controller: MediaController? = null
     private var searchJob: Job? = null
+    private val podcastLoads = mutableSetOf<String>()
     private var searchGeneration: Long = 0
+    private val preferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "speed" || key == "podcast_sort" || key?.startsWith("speed_for:") == true) updatePreferences()
+    }
     private val connection = MediaController.Builder(application, SessionToken(application, ComponentName(application, PlaybackService::class.java))).buildAsync()
 
     init {
-        viewModelScope.launch { repository.library.collect { library -> mutableState.update { it.copy(library = library) } } }
+        repository.settings.listen(preferenceListener)
+        viewModelScope.launch { repository.library.collect { library -> mutableState.update { it.copy(library = library, podcastSort = repository.settings.sort, globalSpeed = repository.settings.globalSpeed, podcastSpeeds = library.podcasts.mapNotNull { p -> repository.settings.podcastSpeed(p.feedUrl)?.let { speed -> p.feedUrl to speed } }.toMap()) } } }
         viewModelScope.launch {
             runOperation { repository.load(); repository.configureBackgroundSync() }
             if (repository.library.value.podcasts.isNotEmpty()) refresh()
@@ -136,7 +154,15 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             is PodcastAction.Play -> play(action.episode)
             is PodcastAction.Seek -> controller?.seekTo(action.positionMs.coerceAtLeast(0)) ?: Unit
             is PodcastAction.Skip -> controller?.let { it.seekTo((it.currentPosition + action.milliseconds).coerceIn(0, it.duration.takeIf { d -> d > 0 } ?: Long.MAX_VALUE)) } ?: Unit
-            is PodcastAction.Speed -> controller?.setPlaybackSpeed(action.speed.coerceIn(0.5f, 3f)) ?: Unit
+            is PodcastAction.Speed -> { repository.settings.setSpeed(action.speed, action.feedUrl); updatePreferences() }
+            is PodcastAction.UseGlobalSpeed -> { repository.settings.useGlobal(action.feedUrl); updatePreferences() }
+            is PodcastAction.SortPodcasts -> { repository.settings.setSort(action.sort); updatePreferences() }
+            is PodcastAction.Favorite -> viewModelScope.launch { runOperation { repository.setFavorite(action.episodeId, action.favorite) } }.let { }
+            is PodcastAction.LoadPodcast -> loadPodcast(action.feedUrl, action.more)
+            is PodcastAction.LoadDescription -> if (action.episodeId !in state.value.descriptions) viewModelScope.launch {
+                runOperation { val description = repository.episodeDescription(action.episodeId); mutableState.update { it.copy(descriptions = (it.descriptions - action.episodeId + (action.episodeId to description)).entries.toList().takeLast(24).associate { entry -> entry.toPair() }) } }
+            }.let { }
+            PodcastAction.LoadMoreEpisodes -> viewModelScope.launch { runOperation { repository.loadMoreEpisodes() } }.let { }
             is PodcastAction.Download -> viewModelScope.launch { runOperation { repository.download(action.episode) } }.let { }
             is PodcastAction.RemoveDownload -> viewModelScope.launch { runOperation {
                 val player = controller
@@ -212,11 +238,28 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
     }
 
     private suspend fun refresh(): Unit {
-        mutableState.update { it.copy(refreshing = true) }
+        mutableState.update { it.copy(refreshing = true, refreshCompleted = 0, refreshTotal = 0) }
         try { runOperation {
-            val failed = repository.refresh()
-            if (failed.isNotEmpty()) mutableState.update { it.copy(message = "更新できなかった番組: ${failed.joinToString("、")}") }
+            val failed = repository.refresh { done, total -> mutableState.update { it.copy(refreshCompleted = maxOf(it.refreshCompleted, done), refreshTotal = total) } }
+            if (failed.isNotEmpty()) mutableState.update { it.copy(message = "${failed.size}番組を更新できませんでした。") }
         } } finally { mutableState.update { it.copy(refreshing = false) } }
+    }
+
+    private fun updatePreferences(): Unit {
+        mutableState.update { current -> current.copy(podcastSort = repository.settings.sort, globalSpeed = repository.settings.globalSpeed,
+            podcastSpeeds = current.library.podcasts.mapNotNull { p -> repository.settings.podcastSpeed(p.feedUrl)?.let { p.feedUrl to it } }.toMap()) }
+    }
+
+    private fun loadPodcast(feed: String, more: Boolean): Unit {
+        if (!podcastLoads.add(feed)) return
+        viewModelScope.launch {
+            try { runOperation {
+                val old = state.value.podcastPages[feed]
+                val limit = if (more) (old?.episodes?.size ?: 0) + 150 else maxOf(old?.episodes?.size ?: 0, 150)
+                val page = repository.podcastEpisodes(feed, limit)
+                mutableState.update { it.copy(podcastPages = it.podcastPages + (feed to page)) }
+            } } finally { podcastLoads.remove(feed) }
+        }
     }
 
     private fun togglePlayback(): Unit {
@@ -279,5 +322,5 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
         return failure
     }
 
-    override fun onCleared(): Unit { MediaController.releaseFuture(connection); controller = null; super.onCleared() }
+    override fun onCleared(): Unit { repository.settings.unlisten(preferenceListener); MediaController.releaseFuture(connection); controller = null; super.onCleared() }
 }

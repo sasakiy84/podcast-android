@@ -105,4 +105,12 @@ class FeedParserTest {
 
     @Test(expected = PodcastException::class)
     fun credentialsAndLocalSchemesCannotBeUsedAsSubscriptionUrls(): Unit { podcastUrl("https://user:pass@example.org/feed") }
+    @org.junit.Test fun readsWebsiteAndNestedNotesWithoutAccumulatingTheWholeChannel(): Unit {
+        val feed = FeedParser.parse("""<rss><channel><title>番組</title><link>https://example.org/site</link><description>番組の説明</description><item><title>回</title><description><div><p>最初</p><p>続き</p></div></description><enclosure url="https://example.org/one.mp3"/></item></channel></rss>""", "https://example.org/rss")
+        org.junit.Assert.assertEquals("https://example.org/site", feed.podcast.website)
+        org.junit.Assert.assertEquals("番組の説明", feed.podcast.description)
+        org.junit.Assert.assertTrue(feed.episodes.single().description.contains("最初"))
+        org.junit.Assert.assertTrue(feed.episodes.single().description.contains("続き"))
+    }
+
 }

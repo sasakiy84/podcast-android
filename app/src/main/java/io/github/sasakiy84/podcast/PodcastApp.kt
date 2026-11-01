@@ -4,12 +4,16 @@ package io.github.sasakiy84.podcast
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,11 +27,13 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -51,7 +57,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private enum class HomeTab(val label: String) { Library("ポッドキャスト"), Episodes("エピソード"), Queues("キュー"), Search("検索") }
-private enum class EpisodeFilter(val label: String) { All("すべて"), Unplayed("未再生"), Downloaded("ダウンロード") }
+private enum class EpisodeFilter(val label: String) { All("すべて"), Unplayed("未再生"), Downloaded("ダウンロード"), Favorites("お気に入り") }
 
 @Composable
 fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastAction) -> Unit = {}, onImportOpml: () -> Unit = {}, onExportOpml: () -> Unit = {}): Unit {
@@ -64,11 +70,15 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
         var selectedFeed by rememberSaveable { mutableStateOf<String?>(null) }
         var playerExpanded by rememberSaveable { mutableStateOf(false) }
         var queueEpisode by rememberSaveable { mutableStateOf<String?>(null) }
+        var episodeSnapshot by remember { mutableStateOf<Episode?>(null) }
         var episodeDetails by rememberSaveable { mutableStateOf<String?>(null) }
+        val routeStates = rememberSaveableStateHolder()
+        var globalSpeedMenu by remember { mutableStateOf(false) }
         var libraryMenu by remember { mutableStateOf(false) }
         var unsubscribe by remember { mutableStateOf<Podcast?>(null) }
         val selected = state.library.podcasts.firstOrNull { it.feedUrl == selectedFeed }
-        val current = state.library.episodes.firstOrNull { it.id == state.playback.episodeId }
+        val knownEpisodes = remember(state.library.episodes, state.podcastPages) { (state.podcastPages.values.flatMap { it.episodes } + state.library.episodes).associateBy { it.id } }
+        val current = knownEpisodes[state.playback.episodeId]
         val snackbar = remember { SnackbarHostState() }
         LaunchedEffect(state.message) {
             state.message?.let { message -> snackbar.showSnackbar(message); onAction(PodcastAction.ClearMessage) }
@@ -87,7 +97,10 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                         if (selected != null) IconButton(onClick = { unsubscribe = selected }) { Icon(Icons.Default.MoreVert, "購読を解除") }
                         if (tab != HomeTab.Search) {
                             IconButton(onClick = { onAction(PodcastAction.Refresh) }, enabled = !state.refreshing && state.library.podcasts.isNotEmpty()) {
-                                if (state.refreshing) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp) else Icon(Icons.Default.Refresh, "番組を更新")
+                                if (state.refreshing) Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    if (state.refreshTotal > 0) Text("${state.refreshCompleted}/${state.refreshTotal}", style = MaterialTheme.typography.labelSmall)
+                                } else Icon(Icons.Default.Refresh, "番組を更新")
                             }
                             IconButton(onClick = { selectedFeed = null; tab = HomeTab.Search }) { Icon(Icons.Default.Add, "ポッドキャストを追加") }
                         }
@@ -97,6 +110,9 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                                 else Icon(Icons.Default.MoreVert, "番組一覧のメニュー")
                             }
                             DropdownMenu(expanded = libraryMenu, onDismissRequest = { libraryMenu = false }) {
+                                PodcastSort.entries.forEach { sort -> DropdownMenuItem(text = { Text(sort.label) }, onClick = { onAction(PodcastAction.SortPodcasts(sort)); libraryMenu = false }, trailingIcon = { if (state.podcastSort == sort) Icon(Icons.Default.Check, null) }) }
+                                DropdownMenuItem(text = { Text("再生速度") }, onClick = { libraryMenu = false; globalSpeedMenu = true })
+                                HorizontalDivider()
                                 DropdownMenuItem(text = { Text("OPML をインポート") }, onClick = { libraryMenu = false; onImportOpml() })
                                 DropdownMenuItem(text = { Text("OPML をエクスポート") }, enabled = state.library.podcasts.isNotEmpty(), onClick = { libraryMenu = false; onExportOpml() })
                             }
@@ -119,14 +135,15 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
                 when {
-                    selected != null -> PodcastDetails(selected, state, onAction) { episodeDetails = it.id }
-                    tab == HomeTab.Library -> PodcastLibrary(state.library.podcasts, { selectedFeed = it.feedUrl }, { tab = HomeTab.Search })
-                    tab == HomeTab.Episodes -> EpisodesPage(state, onAction) { episodeDetails = it.id }
-                    tab == HomeTab.Queues -> PlaybackQueuesPage(state, onAction) { episodeDetails = it.id }
-                    else -> SearchPage(state, onAction)
+                    selected != null -> routeStates.SaveableStateProvider("podcast:${selected.feedUrl}") { PodcastDetails(selected, state, onAction, queue = { queueEpisode = it.id }) { episodeSnapshot = it; episodeDetails = it.id } }
+                    tab == HomeTab.Library -> routeStates.SaveableStateProvider("library") { PodcastLibrary(state.library, state.podcastSort, { selectedFeed = it.feedUrl }, { tab = HomeTab.Search }) }
+                    tab == HomeTab.Episodes -> routeStates.SaveableStateProvider("episodes") { EpisodesPage(state, onAction, queue = { queueEpisode = it.id }) { episodeSnapshot = it; episodeDetails = it.id } }
+                    tab == HomeTab.Queues -> routeStates.SaveableStateProvider("queues") { PlaybackQueuesPage(state, onAction, onQueue = { queueEpisode = it.id }) { episodeSnapshot = it; episodeDetails = it.id } }
+                    else -> routeStates.SaveableStateProvider("search") { SearchPage(state, onAction) }
                 }
             }
         }
+        if (globalSpeedMenu) PlaybackSpeedSheet(state, null, action = onAction, dismiss = { globalSpeedMenu = false })
         if (playerExpanded && current != null) Dialog(onDismissRequest = { playerExpanded = false }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
             val view = LocalView.current
             val window = (view.parent as? DialogWindowProvider)?.window
@@ -144,10 +161,11 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                 }
             }
         }
-        state.library.episodes.firstOrNull { it.id == episodeDetails }?.let { episode ->
+        (knownEpisodes[episodeDetails] ?: episodeSnapshot?.takeIf { it.id == episodeDetails && state.library.podcasts.any { p -> p.feedUrl == it.feedUrl } })?.let { episode ->
+            LaunchedEffect(episode.id) { onAction(PodcastAction.LoadDescription(episode.id)) }
             ModalBottomSheet(shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp), sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), onDismissRequest = { episodeDetails = null }) {
                 LazyColumn(contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    item { Text(episode.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+                    item { Row(verticalAlignment = Alignment.CenterVertically) { Text(episode.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); FavoriteButton(episode.id, state, onAction) } }
                     item {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Button(onClick = { onAction(PodcastAction.Play(episode)); episodeDetails = null }, shape = RoundedCornerShape(8.dp), enabled = state.playback.connected) { Text("再生") }
@@ -155,7 +173,7 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                         }
                     }
                     item { OutlinedButton(onClick = { queueEpisode = episode.id; episodeDetails = null }, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) { Text("キューに追加・編集") } }
-                    if (episode.description.isNotBlank()) item { Text(episode.description, style = MaterialTheme.typography.bodyLarge) }
+                    if (episode.description.isNotBlank()) item { Text(state.descriptions[episode.id] ?: episode.description, style = MaterialTheme.typography.bodyLarge) }
                     item {
                         val completed = state.library.progress[episode.id]?.completed == true
                         TextButton(onClick = { onAction(PodcastAction.MarkPlayed(episode, !completed)); episodeDetails = null }) { Text(if (completed) "未再生に戻す" else "再生済みにする") }
@@ -163,7 +181,7 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
                 }
             }
         }
-        state.library.episodes.firstOrNull { it.id == queueEpisode }?.let { episode ->
+        (knownEpisodes[queueEpisode] ?: episodeSnapshot?.takeIf { it.id == queueEpisode && state.library.podcasts.any { p -> p.feedUrl == it.feedUrl } })?.let { episode ->
             QueueMembershipDialog(episode, state.library, onAction) { queueEpisode = null }
         }
         unsubscribe?.let { podcast ->
@@ -174,12 +192,16 @@ fun PodcastApp(state: PodcastUiState = PodcastUiState(), onAction: (PodcastActio
 }
 
 @Composable
-private fun PodcastLibrary(podcasts: List<Podcast>, open: (Podcast) -> Unit, add: () -> Unit): Unit {
+private fun PodcastLibrary(library: Library, sort: PodcastSort, open: (Podcast) -> Unit, add: () -> Unit): Unit {
+    val podcasts = remember(library.podcasts, library.latestEpisodes, sort) { sortedPodcasts(library, sort) }
+    val grid = rememberLazyGridState()
+    var appliedSort by rememberSaveable { mutableStateOf(sort) }
+    LaunchedEffect(sort) { if (appliedSort != sort) { grid.scrollToItem(0); appliedSort = sort } }
     if (podcasts.isEmpty()) {
         EmptyState("ポッドキャストを追加", "", "番組を探す", add)
         return
     }
-    LazyVerticalGrid(GridCells.Adaptive(100.dp), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyVerticalGrid(GridCells.Adaptive(100.dp), state = grid, contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(podcasts, key = { it.feedUrl }) { podcast ->
             Box(Modifier.clip(RoundedCornerShape(5.dp)).clickable { open(podcast) }.semantics { contentDescription = podcast.title }) {
                 Cover(podcast.artwork, podcast.title, Modifier.fillMaxWidth().aspectRatio(1f))
@@ -189,19 +211,30 @@ private fun PodcastLibrary(podcasts: List<Podcast>, open: (Podcast) -> Unit, add
 }
 
 @Composable
-private fun PodcastDetails(podcast: Podcast, state: PodcastUiState, action: (PodcastAction) -> Unit, details: (Episode) -> Unit): Unit {
-    val episodes = state.library.episodes.filter { it.feedUrl == podcast.feedUrl }
-    LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+private fun PodcastDetails(podcast: Podcast, state: PodcastUiState, action: (PodcastAction) -> Unit, queue: (Episode) -> Unit, details: (Episode) -> Unit): Unit {
+    val page = state.podcastPages[podcast.feedUrl]
+    val episodes = page?.episodes ?: state.library.episodes.filter { it.feedUrl == podcast.feedUrl }
+    val swipes = remember { EpisodeSwipeState() }
+    val list = rememberLazyListState()
+    var sourceMenu by remember { mutableStateOf(false) }
+    var speedMenu by remember { mutableStateOf(false) }
+    LaunchedEffect(podcast.feedUrl, state.library.episodeCounts[podcast.feedUrl], state.library.latestEpisodes[podcast.feedUrl]) { action(PodcastAction.LoadPodcast(podcast.feedUrl)) }
+    LaunchedEffect(list.isScrollInProgress) { if (list.isScrollInProgress) swipes.openId = null }
+    LazyColumn(state = list, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Cover(podcast.artwork, podcast.title, Modifier.size(104.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(podcast.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(podcast.author, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                    Text("${episodes.size} エピソード", style = MaterialTheme.typography.labelMedium)
+                    Text("${state.library.episodeCounts[podcast.feedUrl] ?: page?.total ?: episodes.size} エピソード", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
+        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = { speedMenu = true }) { Text("再生速度 ${state.podcastSpeeds[podcast.feedUrl] ?: state.globalSpeed}×") }
+            TextButton(onClick = { sourceMenu = true }) { Text("購読元") }
+        } }
         if (podcast.description.isNotBlank()) item { Text(podcast.description, style = MaterialTheme.typography.bodyMedium, maxLines = 6, overflow = TextOverflow.Ellipsis) }
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -213,41 +246,51 @@ private fun PodcastDetails(podcast: Podcast, state: PodcastUiState, action: (Pod
         }
         item { Text("エピソード", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
         if (episodes.isEmpty()) item { Text("公開されている音声エピソードはありません。") }
-        items(episodes, key = { it.id }) { EpisodeCard(it, podcast, state, action, details) }
+        items(episodes, key = { it.id }) { EpisodeCard(it, podcast, state, action, details, onQueue = queue, swipes = swipes) }
+        if (page != null && episodes.size < page.total) item { TextButton(onClick = { action(PodcastAction.LoadPodcast(podcast.feedUrl, true)) }, modifier = Modifier.fillMaxWidth()) { Text("さらに表示") } }
     }
+    if (sourceMenu) PodcastSourceSheet(podcast) { sourceMenu = false }
+    if (speedMenu) PlaybackSpeedSheet(state, podcast.feedUrl, podcastScope = true, action = action, dismiss = { speedMenu = false })
 }
 
 @Composable
-private fun EpisodesPage(state: PodcastUiState, action: (PodcastAction) -> Unit, details: (Episode) -> Unit): Unit {
+private fun EpisodesPage(state: PodcastUiState, action: (PodcastAction) -> Unit, queue: (Episode) -> Unit, details: (Episode) -> Unit): Unit {
     var filter by rememberSaveable { mutableStateOf(EpisodeFilter.All) }
+    val swipes = remember { EpisodeSwipeState() }
+    val list = rememberLazyListState()
+    LaunchedEffect(list.isScrollInProgress) { if (list.isScrollInProgress) swipes.openId = null }
     val episodes = state.library.episodes.filter { episode -> when (filter) {
         EpisodeFilter.All -> true
         EpisodeFilter.Unplayed -> state.library.progress[episode.id]?.completed != true
         EpisodeFilter.Downloaded -> state.library.downloads.containsKey(episode.id)
+        EpisodeFilter.Favorites -> episode.id in state.library.favorites
     } }
     Column {
-        FlowRow(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EpisodeFilter.entries.forEach { item -> FilterChip(selected = filter == item, onClick = { filter = item }, label = { Text(item.label) }) }
+        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(EpisodeFilter.entries, key = { it.name }) { item -> FilterChip(selected = filter == item, onClick = { filter = item }, label = { Text(item.label) }) }
         }
         if (episodes.isEmpty()) {
-            EmptyState(if (filter == EpisodeFilter.Downloaded) "ダウンロードはまだありません" else "エピソードはまだありません", "")
-        } else LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp)) {
-            items(episodes, key = { it.id }) { episode -> EpisodeCard(episode, state.library.podcasts.firstOrNull { it.feedUrl == episode.feedUrl }, state, action, details) }
+            EmptyState(when (filter) { EpisodeFilter.Downloaded -> "ダウンロードはまだありません"; EpisodeFilter.Favorites -> "お気に入りはまだありません"; else -> "エピソードはまだありません" }, "")
+        } else LazyColumn(state = list, contentPadding = PaddingValues(horizontal = 16.dp)) {
+            items(episodes, key = { it.id }) { episode -> EpisodeCard(episode, state.library.podcasts.firstOrNull { it.feedUrl == episode.feedUrl }, state, action, details, onQueue = queue, swipes = swipes) }
+            if (state.library.hasMoreEpisodes && filter in listOf(EpisodeFilter.All, EpisodeFilter.Unplayed)) item { TextButton(onClick = { action(PodcastAction.LoadMoreEpisodes) }, modifier = Modifier.fillMaxWidth()) { Text("さらに表示") } }
         }
     }
 }
 
 @Composable
-internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiState, action: (PodcastAction) -> Unit, details: (Episode) -> Unit, extra: @Composable () -> Unit = {}): Unit {
+internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiState, action: (PodcastAction) -> Unit, details: (Episode) -> Unit, onQueue: (Episode) -> Unit = {}, swipes: EpisodeSwipeState = remember { EpisodeSwipeState() }, removeFromQueue: (() -> Unit)? = null, extra: @Composable () -> Unit = {}): Unit {
     val progress = state.library.progress[episode.id]
     val playing = state.playback.episodeId == episode.id && state.playback.playing
+    EpisodeSwipeActions(episode, state, action, swipes, queue = { onQueue(episode) }, remove = removeFromQueue) {
     Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().clickable { details(episode) }.semantics { contentDescription = "エピソード詳細: ${episode.title}" }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().clickable { swipes.openId = null; details(episode) }.semantics { contentDescription = "エピソード詳細: ${episode.title}" }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Cover(episode.artwork.ifBlank { podcast?.artwork.orEmpty() }, podcast?.title ?: episode.title, Modifier.size(56.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (episode.published > 0) Text(DateTimeFormatter.ofPattern("M月d日").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(episode.published)), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(episode.title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    if (episode.id in state.library.favorites) Icon(Icons.Default.Star, "お気に入り", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                     val download = state.library.downloads[episode.id]
                     if (download != null) Icon(when (download.status) {
                         DownloadStatus.Complete -> Icons.Default.DownloadDone
@@ -266,7 +309,7 @@ internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiSt
                 }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(onClick = { action(PodcastAction.Play(episode)) }, enabled = state.playback.connected, modifier = Modifier.size(48.dp)) {
+                IconButton(onClick = { swipes.openId = null; action(PodcastAction.Play(episode)) }, enabled = state.playback.connected, modifier = Modifier.size(48.dp)) {
                     Icon(if (playing) Icons.Default.PauseCircleOutline else Icons.Default.PlayCircleOutline,
                         if (playing) "一時停止: ${episode.title}" else "再生: ${episode.title}", Modifier.size(30.dp), tint = MaterialTheme.colorScheme.primary)
                 }
@@ -274,6 +317,7 @@ internal fun EpisodeCard(episode: Episode, podcast: Podcast?, state: PodcastUiSt
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    }
     }
 }
 
@@ -336,7 +380,9 @@ private fun SearchPage(state: PodcastUiState, action: (PodcastAction) -> Unit): 
 @Composable
 private fun MiniPlayer(episode: Episode, state: PodcastUiState, action: (PodcastAction) -> Unit, queues: () -> Unit, expand: () -> Unit): Unit {
     val podcast = state.library.podcasts.firstOrNull { it.feedUrl == episode.feedUrl }
-    Surface(Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(14.dp)), color = MaterialTheme.colorScheme.surfaceContainer) {
+    val currentExpand by rememberUpdatedState(expand)
+    val swipeThreshold = with(LocalDensity.current) { 40.dp.toPx() }
+    Surface(Modifier.pointerInput(swipeThreshold) { var moved = 0f; detectVerticalDragGestures(onDragStart = { moved = 0f }, onVerticalDrag = { change, amount -> change.consume(); moved += amount }, onDragEnd = { if (moved < -swipeThreshold) currentExpand() }) }.padding(horizontal = 8.dp).clip(RoundedCornerShape(14.dp)), color = MaterialTheme.colorScheme.surfaceContainer) {
         Column {
             Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -376,8 +422,11 @@ private fun PlayerPage(episode: Episode, state: PodcastUiState, action: (Podcast
     var speedMenu by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
     var showDetails by rememberSaveable { mutableStateOf(false) }
+    val currentClose by rememberUpdatedState(close)
+    val swipeThreshold = with(LocalDensity.current) { 40.dp.toPx() }
+    LaunchedEffect(episode.id) { action(PodcastAction.LoadDescription(episode.id)) }
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().pointerInput(swipeThreshold) { var moved = 0f; detectVerticalDragGestures(onDragStart = { moved = 0f }, onVerticalDrag = { change, amount -> change.consume(); moved += amount }, onDragEnd = { if (moved > swipeThreshold) currentClose() }) }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = close) { Icon(Icons.Default.KeyboardArrowDown, "プレーヤーを閉じる") }
             TextButton(onClick = { showDetails = false }) { Text("再生中", color = if (!showDetails) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold) }
             TextButton(onClick = { showDetails = true }) { Text("詳細", color = if (showDetails) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -386,7 +435,7 @@ private fun PlayerPage(episode: Episode, state: PodcastUiState, action: (Podcast
         }
         if (showDetails) LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
             item { Text(episode.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
-            if (episode.description.isNotBlank()) item { Text(episode.description, style = MaterialTheme.typography.bodyLarge) }
+            if (episode.description.isNotBlank()) item { Text(state.descriptions[episode.id] ?: episode.description, style = MaterialTheme.typography.bodyLarge) }
         } else BoxWithConstraints(Modifier.weight(1f)) {
             val fontScale = LocalDensity.current.fontScale
             val artSize = minOf(maxWidth - 48.dp, maxHeight - 320.dp - 80.dp * (fontScale - 1f).coerceAtLeast(0f), 400.dp).coerceAtLeast(100.dp)
@@ -431,10 +480,8 @@ private fun PlayerPage(episode: Episode, state: PodcastUiState, action: (Podcast
             Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     TextButton(onClick = { speedMenu = true }, enabled = playback.connected, modifier = Modifier.semantics { contentDescription = "再生速度 ${playback.speed}×" }) { Text("${playback.speed}×", fontWeight = FontWeight.Bold) }
-                    DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
-                        listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f).forEach { speed -> DropdownMenuItem(text = { Text("${speed}×") }, onClick = { action(PodcastAction.Speed(speed)); speedMenu = false }, trailingIcon = { if (speed == playback.speed) Icon(Icons.Default.Check, null) }) }
-                    }
                 }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { FavoriteButton(episode.id, state, action) }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     IconButton(onClick = membership) { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, "キューに追加・編集") }
                 }
@@ -448,6 +495,7 @@ private fun PlayerPage(episode: Episode, state: PodcastUiState, action: (Podcast
             }
         }
     }
+    if (speedMenu) PlaybackSpeedSheet(state, episode.feedUrl, action = action, dismiss = { speedMenu = false })
 }
 
 @Composable
@@ -499,5 +547,13 @@ internal fun ConfirmationSheet(title: String, description: String, confirm: Stri
                 TextButton(onClick = onConfirm, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(confirm) }
             }
         }
+    }
+}
+
+@Composable
+private fun FavoriteButton(id: String, state: PodcastUiState, action: (PodcastAction) -> Unit): Unit {
+    val favorite = id in state.library.favorites
+    IconToggleButton(checked = favorite, onCheckedChange = { action(PodcastAction.Favorite(id, it)) }) {
+        Icon(if (favorite) Icons.Default.Star else Icons.Default.StarBorder, if (favorite) "お気に入りを解除" else "お気に入りに追加", Modifier.size(22.dp))
     }
 }

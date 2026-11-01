@@ -25,7 +25,8 @@ import androidx.compose.ui.unit.dp
 import java.util.UUID
 
 @Composable
-internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -> Unit, details: (Episode) -> Unit): Unit {
+internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -> Unit, onQueue: (Episode) -> Unit = {}, details: (Episode) -> Unit): Unit {
+    val swipes = remember { EpisodeSwipeState() }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingQueue by remember { mutableStateOf<PlaybackQueue?>(null) }
     var creating by remember { mutableStateOf(false) }
@@ -95,7 +96,7 @@ internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -
                     Column {
                         EpisodeCard(episode, state.library.podcasts.firstOrNull { it.feedUrl == episode.feedUrl }, state, { event ->
                             if (event is PodcastAction.Play) action(PodcastAction.PlayQueue(queue.id, event.episode.id)) else action(event)
-                        }, details) {
+                        }, details, onQueue = onQueue, swipes = swipes, removeFromQueue = { action(PodcastAction.QueueMembership(queue.id, id, false)) }) {
                             Box {
                                 var menu by remember { mutableStateOf(false) }
                                 IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.MoreHoriz, "キュー内の操作: ${episode.title}") }

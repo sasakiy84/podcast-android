@@ -37,7 +37,7 @@ class PodcastOpmlTest {
     }
 
     @Test fun exportedUtf8SubscriptionsRoundTripWithXmlEscaping(): Unit {
-        val shows = listOf(Podcast("https://example.org/日本語?a=1&b=2", "日本語 & <朝> \"の話\""), Podcast("https://example.org/tech", "Tech 🎧"))
+        val shows = listOf(Podcast("https://example.org/日本語?a=1&b=2", "日本語 & <朝> \"の話\"", website = "https://example.org/site"), Podcast("https://example.org/tech", "Tech 🎧"))
         val output = ByteArrayOutputStream()
         PodcastOpml.write(shows, output)
         val encoded = output.toString("UTF-8")
@@ -46,6 +46,7 @@ class PodcastOpmlTest {
         assertTrue(encoded.contains("type=\"rss\""))
         val parsed = PodcastOpml.read(output.toByteArray().inputStream())
         assertEquals(shows.map { it.title }, parsed.podcasts.map { it.title })
+        assertEquals(shows.map { it.website }, parsed.podcasts.map { it.website })
         assertEquals(shows.map { podcastUrl(it.feedUrl).toASCIIString() }, parsed.podcasts.map { it.feedUrl })
     }
 

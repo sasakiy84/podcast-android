@@ -18,8 +18,8 @@ android {
         applicationId = "io.github.sasakiy84.podcast"
         minSdk = 36
         targetSdk = 36
-        versionCode = providers.gradleProperty("releaseVersionCode").orElse("7").get().toInt()
-        versionName = providers.gradleProperty("releaseVersion").orElse("0.4.0").get()
+        versionCode = providers.gradleProperty("releaseVersionCode").orElse("8").get().toInt()
+        versionName = providers.gradleProperty("releaseVersion").orElse("0.5.0").get()
     }
     if (hasReleaseSigning) {
         signingConfigs {
@@ -50,6 +50,7 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
+            it.maxHeapSize = providers.gradleProperty("testHeap").orElse("512m").get()
             // Android 16's shared-memory shadow needs this JDK module during local tests.
             it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
             val testHome = layout.buildDirectory.dir("test-home").get().asFile

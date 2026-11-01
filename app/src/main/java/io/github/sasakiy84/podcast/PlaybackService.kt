@@ -6,7 +6,6 @@ import androidx.core.content.edit
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
@@ -22,6 +21,7 @@ import kotlinx.coroutines.launch
 class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private var queueSync: kotlinx.coroutines.Job? = null
+    private var speedController: PlaybackSpeedController? = null
     private var ticker: kotlinx.coroutines.Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val repository: PodcastRepository get() = (application as PodcastApplication).repository
@@ -32,8 +32,8 @@ class PlaybackService : MediaSessionService() {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build(), true)
             setHandleAudioBecomingNoisy(true)
             setWakeMode(C.WAKE_MODE_LOCAL)
-            setPlaybackSpeed(repository.preferences.getFloat("speed", 1f).coerceIn(0.5f, 3f))
         }
+        speedController = PlaybackSpeedController(player, repository.settings)
         val activity = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         session = MediaSession.Builder(this, player).setSessionActivity(activity).build()
         player.addListener(object : Player.Listener {
@@ -41,9 +41,6 @@ class PlaybackService : MediaSessionService() {
             override fun onPlaybackStateChanged(playbackState: Int): Unit { persist(player) }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int): Unit {
                 repository.preferences.edit { putString("current", mediaItem?.mediaId) }
-            }
-            override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters): Unit {
-                repository.preferences.edit { putFloat("speed", playbackParameters.speed) }
             }
             override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int): Unit {
                 val id = oldPosition.mediaItem?.mediaId ?: return
@@ -128,6 +125,8 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy(): Unit {
+        speedController?.close()
+        speedController = null
         ticker?.cancel()
         queueSync?.cancel()
         val player = session?.player
@@ -152,6 +151,7 @@ fun Episode.mediaItem(repository: PodcastRepository): MediaItem {
     val podcast = repository.library.value.podcasts.firstOrNull { it.feedUrl == feedUrl } ?: repository.store.podcast(feedUrl)
     return MediaItem.Builder().setMediaId(id).setUri(repository.audioUri(this))
         .setMediaMetadata(androidx.media3.common.MediaMetadata.Builder().setTitle(title).setArtist(podcast?.title)
+            .setExtras(android.os.Bundle().apply { putString("feed_url", feedUrl) })
             .setArtworkUri((artwork.ifBlank { podcast?.artwork.orEmpty() }).takeIf { it.isNotBlank() }?.let(android.net.Uri::parse)).build())
         .build()
 }

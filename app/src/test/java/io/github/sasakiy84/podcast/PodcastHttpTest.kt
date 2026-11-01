@@ -9,6 +9,8 @@ import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPOutputStream
 import java.io.ByteArrayOutputStream
 
+@org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk = [36])
 class PodcastHttpTest {
     @Test
     fun redirectsGzipAndDeclaredCharsetAreHandledTogether(): Unit {
@@ -27,6 +29,17 @@ class PodcastHttpTest {
     @Test(expected = PodcastException::class)
     fun redirectsToLocalFileSchemesAreRejected(): Unit {
         fixture(listOf(Response("302 Found", mapOf("Location" to "file:///etc/passwd")))) { PodcastHttp().get(it) }
+    }
+
+    @Test fun largeFeedsStreamPastTheOldEightMegabyteLimit(): Unit {
+        val xml = "<rss><channel><title>大きな番組</title><link>/site</link><!--" + "x".repeat(9 * 1024 * 1024) + "--><item><title>回</title><enclosure url='/audio.mp3'/></item></channel></rss>"
+        val bytes = ByteArrayOutputStream().apply { GZIPOutputStream(this).use { it.write(xml.toByteArray()) } }.toByteArray()
+        fixture(listOf(Response("302 Found", mapOf("Location" to "/rss")), Response("200 OK", mapOf("Content-Type" to "application/rss+xml; charset=UTF-8", "Content-Encoding" to "gzip"), bytes))) { url ->
+            val feed = PodcastHttp().fetchFeed("$url/start")
+            assertEquals("$url/start", feed.podcast.feedUrl)
+            assertEquals("$url/site", feed.podcast.website)
+            assertEquals("$url/audio.mp3", feed.episodes.single().audioUrl)
+        }
     }
 
     private data class Response(val status: String, val headers: Map<String, String>, val body: ByteArray = byteArrayOf())

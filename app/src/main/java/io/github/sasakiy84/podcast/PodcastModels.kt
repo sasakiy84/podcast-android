@@ -9,6 +9,7 @@ data class Podcast(
     val author: String = "",
     val artwork: String = "",
     val description: String = "",
+    val website: String = "",
 )
 
 data class Episode(
@@ -58,6 +59,10 @@ data class Library(
     val queues: List<PlaybackQueue> = emptyList(),
     val queueRules: List<QueueRule> = emptyList(),
     val autoDownloadFeeds: Set<String> = emptySet(),
+    val favorites: Set<String> = emptySet(),
+    val latestEpisodes: Map<String, Long> = emptyMap(),
+    val episodeCounts: Map<String, Int> = emptyMap(),
+    val hasMoreEpisodes: Boolean = false,
 )
 
 class PodcastException(message: String) : java.io.IOException(message)
@@ -83,3 +88,5 @@ fun formatTime(milliseconds: Long): String {
     return if (seconds >= 3600) "%d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60)
     else "%d:%02d".format(seconds / 60, seconds % 60)
 }
+
+data class PodcastEpisodePage(val episodes: List<Episode>, val total: Int)
