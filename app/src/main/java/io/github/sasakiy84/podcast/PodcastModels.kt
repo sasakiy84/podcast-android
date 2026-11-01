@@ -21,7 +21,12 @@ data class Episode(
     val published: Long = 0,
     val durationMs: Long = 0,
     val artwork: String = "",
+    val chapters: List<EpisodeChapter> = emptyList(),
+    val chaptersUrl: String = "",
 )
+
+data class EpisodeChapter(val startMs: Long, val title: String, val url: String = "", val image: String = "")
+data class PodcastOptions(val notifications: Boolean = false, val skipStartSeconds: Int = 0, val skipEndSeconds: Int = 0)
 
 data class PodcastFeed(val podcast: Podcast, val episodes: List<Episode>)
 data class PodcastCandidate(val podcast: Podcast, val source: String = "Apple Podcasts")
@@ -63,6 +68,8 @@ data class Library(
     val latestEpisodes: Map<String, Long> = emptyMap(),
     val episodeCounts: Map<String, Int> = emptyMap(),
     val hasMoreEpisodes: Boolean = false,
+    val historyIds: List<String> = emptyList(),
+    val hasMoreHistory: Boolean = false,
 )
 
 class PodcastException(message: String) : java.io.IOException(message)

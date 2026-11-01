@@ -18,67 +18,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-data class PlaybackUi(
-    val episodeId: String? = null,
-    val playing: Boolean = false,
-    val buffering: Boolean = false,
-    val positionMs: Long = 0,
-    val durationMs: Long = 0,
-    val speed: Float = 1f,
-    val connected: Boolean = false,
-)
-
-data class PodcastUiState(
-    val library: Library = Library(),
-    val results: List<PodcastCandidate> = emptyList(),
-    val searching: Boolean = false,
-    val searchError: String? = null,
-    val searched: Boolean = false,
-    val refreshing: Boolean = false,
-    val opmlBusy: Boolean = false,
-    val refreshCompleted: Int = 0,
-    val refreshTotal: Int = 0,
-    val podcastSort: PodcastSort = PodcastSort.Title,
-    val globalSpeed: Float = 1f,
-    val podcastSpeeds: Map<String, Float> = emptyMap(),
-    val podcastPages: Map<String, PodcastEpisodePage> = emptyMap(),
-    val descriptions: Map<String, String> = emptyMap(),
-    val busyFeeds: Set<String> = emptySet(),
-    val message: String? = null,
-    val playback: PlaybackUi = PlaybackUi(),
-)
-
-sealed interface PodcastAction {
-    data class Search(val query: String) : PodcastAction
-    data class Resolve(val url: String) : PodcastAction
-    data class Subscribe(val candidate: PodcastCandidate) : PodcastAction
-    data class Unsubscribe(val podcast: Podcast) : PodcastAction
-    data class SaveQueue(val id: String, val name: String, val episodeId: String? = null) : PodcastAction
-    data class DeleteQueue(val id: String) : PodcastAction
-    data class QueueMembership(val queueId: String, val episodeId: String, val included: Boolean) : PodcastAction
-    data class MoveQueueEpisode(val queueId: String, val episodeId: String, val direction: Int) : PodcastAction
-    data class SaveQueueRule(val rule: QueueRule, val applyExisting: Boolean) : PodcastAction
-    data class DeleteQueueRule(val queueId: String, val feedUrl: String) : PodcastAction
-    data class AutoDownloadFeed(val feedUrl: String, val enabled: Boolean) : PodcastAction
-    data class PlayQueue(val queueId: String, val episodeId: String? = null) : PodcastAction
-    data class Play(val episode: Episode) : PodcastAction
-    data class Seek(val positionMs: Long) : PodcastAction
-    data class Skip(val milliseconds: Long) : PodcastAction
-    data class Speed(val speed: Float, val feedUrl: String? = null) : PodcastAction
-    data class UseGlobalSpeed(val feedUrl: String) : PodcastAction
-    data class SortPodcasts(val sort: PodcastSort) : PodcastAction
-    data class Favorite(val episodeId: String, val favorite: Boolean) : PodcastAction
-    data class LoadPodcast(val feedUrl: String, val more: Boolean = false) : PodcastAction
-    data class LoadDescription(val episodeId: String) : PodcastAction
-    data object LoadMoreEpisodes : PodcastAction
-    data class Download(val episode: Episode) : PodcastAction
-    data class RemoveDownload(val episode: Episode) : PodcastAction
-    data class MarkPlayed(val episode: Episode, val completed: Boolean) : PodcastAction
-    data object Refresh : PodcastAction
-    data object TogglePlayback : PodcastAction
-    data object ClearMessage : PodcastAction
-}
-
 @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
 class PodcastsViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = (application as PodcastApplication).repository
@@ -89,13 +28,13 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
     private val podcastLoads = mutableSetOf<String>()
     private var searchGeneration: Long = 0
     private val preferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == "speed" || key == "podcast_sort" || key?.startsWith("speed_for:") == true) updatePreferences()
+        if (key?.startsWith("option:") == true || key == "speed" || key == "podcast_sort" || key?.startsWith("speed_for:") == true) updatePreferences()
     }
     private val connection = MediaController.Builder(application, SessionToken(application, ComponentName(application, PlaybackService::class.java))).buildAsync()
 
     init {
         repository.settings.listen(preferenceListener)
-        viewModelScope.launch { repository.library.collect { library -> mutableState.update { it.copy(library = library, podcastSort = repository.settings.sort, globalSpeed = repository.settings.globalSpeed, podcastSpeeds = library.podcasts.mapNotNull { p -> repository.settings.podcastSpeed(p.feedUrl)?.let { speed -> p.feedUrl to speed } }.toMap()) } } }
+        viewModelScope.launch { repository.library.collect { library -> mutableState.update { it.copy(library = library, podcastOptions = library.podcasts.associate { p -> p.feedUrl to repository.settings.options(p.feedUrl) }, podcastSort = repository.settings.sort, globalSpeed = repository.settings.globalSpeed, podcastSpeeds = library.podcasts.mapNotNull { p -> repository.settings.podcastSpeed(p.feedUrl)?.let { speed -> p.feedUrl to speed } }.toMap()) } } }
         viewModelScope.launch {
             runOperation { repository.load(); repository.configureBackgroundSync() }
             if (repository.library.value.podcasts.isNotEmpty()) refresh()
@@ -152,8 +91,8 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             is PodcastAction.AutoDownloadFeed -> viewModelScope.launch { runOperation { repository.setAutoDownload(action.feedUrl, action.enabled) } }.let { }
             is PodcastAction.PlayQueue -> playQueue(action.queueId, action.episodeId)
             is PodcastAction.Play -> play(action.episode)
-            is PodcastAction.Seek -> controller?.seekTo(action.positionMs.coerceAtLeast(0)) ?: Unit
-            is PodcastAction.Skip -> controller?.let { it.seekTo((it.currentPosition + action.milliseconds).coerceIn(0, it.duration.takeIf { d -> d > 0 } ?: Long.MAX_VALUE)) } ?: Unit
+            is PodcastAction.Seek -> controller?.let { seekPlayback(it, action.positionMs); updatePlayback() } ?: Unit
+            is PodcastAction.Skip -> controller?.let { seekPlayback(it, it.currentPosition + action.milliseconds); updatePlayback() } ?: Unit
             is PodcastAction.Speed -> { repository.settings.setSpeed(action.speed, action.feedUrl); updatePreferences() }
             is PodcastAction.UseGlobalSpeed -> { repository.settings.useGlobal(action.feedUrl); updatePreferences() }
             is PodcastAction.SortPodcasts -> { repository.settings.setSort(action.sort); updatePreferences() }
@@ -162,6 +101,20 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             is PodcastAction.LoadDescription -> if (action.episodeId !in state.value.descriptions) viewModelScope.launch {
                 runOperation { val description = repository.episodeDescription(action.episodeId); mutableState.update { it.copy(descriptions = (it.descriptions - action.episodeId + (action.episodeId to description)).entries.toList().takeLast(24).associate { entry -> entry.toPair() }) } }
             }.let { }
+            is PodcastAction.SetPodcastOptions -> viewModelScope.launch { runOperation { repository.setPodcastOptions(action.feedUrl, action.options); updatePreferences() } }.let { }
+            PodcastAction.LoadMoreHistory -> viewModelScope.launch { runOperation { repository.loadMoreHistory() } }.let { }
+            is PodcastAction.LoadChapters -> loadChapters(action.episodeId, action.retry)
+            is PodcastAction.PlayChapter -> {
+                val player = controller ?: return
+                viewModelScope.launch { runOperation {
+                    if (state.value.library.progress[action.episode.id]?.completed == true) repository.updateProgress(action.episode.id, ListeningProgress(action.positionMs, action.episode.durationMs), resetCompletion = true)
+                    if (player.currentMediaItem?.mediaId == action.episode.id) { seekPlayback(player, action.positionMs); updatePlayback() }
+                    else {
+                        repository.preferences.edit { remove("active_queue") }
+                        player.setMediaItem(action.episode.mediaItem(repository, applyStartSkip = false), action.positionMs); player.prepare(); player.play()
+                    }
+                } }
+            }
             PodcastAction.LoadMoreEpisodes -> viewModelScope.launch { runOperation { repository.loadMoreEpisodes() } }.let { }
             is PodcastAction.Download -> viewModelScope.launch { runOperation { repository.download(action.episode) } }.let { }
             is PodcastAction.RemoveDownload -> viewModelScope.launch { runOperation {
@@ -246,8 +199,19 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun updatePreferences(): Unit {
-        mutableState.update { current -> current.copy(podcastSort = repository.settings.sort, globalSpeed = repository.settings.globalSpeed,
+        mutableState.update { current -> current.copy(podcastOptions = current.library.podcasts.associate { it.feedUrl to repository.settings.options(it.feedUrl) }, podcastSort = repository.settings.sort, globalSpeed = repository.settings.globalSpeed,
             podcastSpeeds = current.library.podcasts.mapNotNull { p -> repository.settings.podcastSpeed(p.feedUrl)?.let { p.feedUrl to it } }.toMap()) }
+    }
+
+    private fun loadChapters(id: String, retry: Boolean): Unit {
+        if (id in state.value.chaptersLoading || (!retry && (id in state.value.chapters || id in state.value.chapterErrors))) return
+        mutableState.update { it.copy(chaptersLoading = it.chaptersLoading + id, chapterErrors = it.chapterErrors - id) }
+        viewModelScope.launch {
+            try {
+                val failure = runOperation { val chapters = repository.loadChapters(id); mutableState.update { it.copy(chapters = (it.chapters + (id to chapters)).entries.toList().takeLast(24).associate { e -> e.toPair() }) } }
+                if (failure != null) mutableState.update { it.copy(chapterErrors = it.chapterErrors + (id to failure)) }
+            } finally { mutableState.update { it.copy(chaptersLoading = it.chaptersLoading - id) } }
+        }
     }
 
     private fun loadPodcast(feed: String, more: Boolean): Unit {
@@ -264,10 +228,15 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
 
     private fun togglePlayback(): Unit {
         val player = controller ?: return
-        if (player.playbackState == Player.STATE_ENDED) {
+        val id = player.currentMediaItem?.mediaId
+        if (player.playbackState == Player.STATE_ENDED || (id != null && state.value.library.progress[id]?.completed == true && !player.isPlaying)) {
+            val duration = player.duration.takeIf { it > 0 } ?: id?.let { state.value.library.progress[it]?.durationMs } ?: 0
+            val ended = player.playbackState == Player.STATE_ENDED || (duration > 0 && player.currentPosition >= duration)
+            val episode = state.value.library.episodes.firstOrNull { it.id == id }
+            val position = if (ended || player.currentPosition == 0L) episode?.let { playbackStart(it, ListeningProgress(), repository.settings.options(it.feedUrl)) } ?: 0 else player.currentPosition.coerceAtLeast(0)
             viewModelScope.launch { runOperation {
-                player.currentMediaItem?.mediaId?.let { repository.updateProgress(it, ListeningProgress(), resetCompletion = true) }
-                player.seekTo(0); player.play()
+                id?.let { repository.updateProgress(it, ListeningProgress(position, player.duration.coerceAtLeast(0)), resetCompletion = true) }
+                seekPlayback(player, position); player.play()
             } }
         } else if (player.playWhenReady) player.pause() else {
             if (player.playbackState == Player.STATE_IDLE) player.prepare()
@@ -282,7 +251,7 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             val progress = state.value.library.progress[episode.id] ?: ListeningProgress()
             if (progress.completed) repository.updateProgress(episode.id, ListeningProgress(), resetCompletion = true)
             repository.preferences.edit { remove("active_queue") }
-            player.setMediaItem(episode.mediaItem(repository), if (progress.completed) 0 else progress.positionMs)
+            player.setMediaItem(episode.mediaItem(repository), playbackStart(episode, progress, repository.settings.options(episode.feedUrl)))
             player.prepare(); player.play()
         } }
     }
@@ -299,7 +268,7 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
         val target = episodeId ?: current.takeIf { sameQueue }
         val index = episodes.indexOfFirst { it.id == target }.coerceAtLeast(0)
         repository.preferences.edit { putString("active_queue", queueId) }
-        player.setMediaItems(episodes.map { it.mediaItem(repository) }, index, if (episodes[index].id == current) player.currentPosition.coerceAtLeast(0) else library.progress[episodes[index].id]?.positionMs ?: 0)
+        player.setMediaItems(episodes.map { it.mediaItem(repository) }, index, if (episodes[index].id == current) player.currentPosition.coerceAtLeast(0) else playbackStart(episodes[index], library.progress[episodes[index].id] ?: ListeningProgress(), repository.settings.options(episodes[index].feedUrl)))
         player.prepare(); player.play()
     }
 

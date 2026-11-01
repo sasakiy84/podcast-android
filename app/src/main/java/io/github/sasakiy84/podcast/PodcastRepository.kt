@@ -1,11 +1,8 @@
 package io.github.sasakiy84.podcast
 
-import android.app.Application
-import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
-import android.os.Environment
-import androidx.core.net.toUri
+import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -15,26 +12,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.io.File
-
-class PodcastApplication : Application(), coil.ImageLoaderFactory {
-    override fun newImageLoader(): coil.ImageLoader = coil.ImageLoader.Builder(this)
-        .memoryCache { coil.memory.MemoryCache.Builder(this).maxSizePercent(0.12).build() }
-        .diskCache { coil.disk.DiskCache.Builder().directory(cacheDir.resolve("image_cache")).maxSizeBytes(128L * 1024 * 1024).build() }
-        .respectCacheHeaders(false)
-        .crossfade(false)
-        .build()
-    val repository: PodcastRepository by lazy { PodcastRepository(this) }
-
-}
 
 class PodcastRepository(private val context: Context, private val directory: PodcastDirectory = PodcastDirectory(), private val fetchFeed: (String) -> PodcastFeed = directory::fetchFeed) {
     val store: PodcastStore = PodcastStore(context)
     val preferences: android.content.SharedPreferences = context.getSharedPreferences("playback", Context.MODE_PRIVATE)
     val settings = PlaybackPreferences(preferences)
     private var episodeLimit = 1000
+    private var historyLimit = 150
+    private val notifications = PodcastNotifications(context)
     private val refreshPermits = kotlinx.coroutines.sync.Semaphore(3)
-    private val manager = context.getSystemService(DownloadManager::class.java)
+    private val downloadStorage = PodcastDownloadStorage(context, store)
     private val mutex = Mutex()
     private val mutableLibrary = MutableStateFlow(Library())
     val library: StateFlow<Library> = mutableLibrary
@@ -88,7 +75,10 @@ class PodcastRepository(private val context: Context, private val directory: Pod
                             val feed = fetchFeed(podcast.feedUrl)
                             mutex.withLock {
                                 if (store.podcast(podcast.feedUrl) != null) {
+                                    val existing = store.episodeIds(podcast.feedUrl)
                                     store.saveFeed(feed)
+                                    if (settings.options(podcast.feedUrl).notifications && (existing.isNotEmpty() || preferences.getBoolean("seen_feed:${stableId(podcast.feedUrl)}", false))) notifications.newEpisodes(feed.podcast, feed.episodes.filter { it.id !in existing })
+                                    preferences.edit { putBoolean("seen_feed:${stableId(podcast.feedUrl)}", true) }
                                     val now = android.os.SystemClock.elapsedRealtime()
                                     if (now - lastPublish >= 750) { publish(); lastPublish = now }
                                 }
@@ -108,6 +98,14 @@ class PodcastRepository(private val context: Context, private val directory: Pod
         failed
     }
 
+    suspend fun loadMoreHistory(): Unit = withContext(Dispatchers.IO) { mutex.withLock { historyLimit += 150; publish() } }
+    suspend fun loadChapters(id: String): List<EpisodeChapter> = withContext(Dispatchers.IO) {
+        val episode = mutex.withLock { store.episode(id) } ?: return@withContext emptyList()
+        if (episode.chapters.isNotEmpty() || episode.chaptersUrl.isBlank()) episode.chapters
+        else EpisodeChapters.decode(PodcastHttp().get(episode.chaptersUrl).body, episode.chaptersUrl)
+    }
+    suspend fun setPodcastOptions(feed: String, value: PodcastOptions): Unit { settings.setOptions(feed, value); configureBackgroundSync() }
+
     suspend fun loadMoreEpisodes(): Unit = withContext(Dispatchers.IO) { mutex.withLock { episodeLimit += 500; publish() } }
     suspend fun podcastEpisodes(feed: String, limit: Int): PodcastEpisodePage = withContext(Dispatchers.IO) { mutex.withLock { store.podcastEpisodes(feed, limit) } }
     suspend fun episodeDescription(id: String): String = withContext(Dispatchers.IO) { mutex.withLock { store.episode(id)?.description.orEmpty() } }
@@ -115,10 +113,8 @@ class PodcastRepository(private val context: Context, private val directory: Pod
 
     suspend fun unsubscribe(podcast: Podcast): Unit = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val ids = store.downloadIds()
             for (episode in store.library().episodes.filter { it.feedUrl == podcast.feedUrl }) {
-                ids[episode.id]?.let { manager.remove(it) }
-                downloadFile(episode.id)?.delete()
+                downloadStorage.remove(episode.id)
             }
             store.unsubscribe(podcast.feedUrl)
             publish()
@@ -131,15 +127,7 @@ class PodcastRepository(private val context: Context, private val directory: Pod
             if (automatic && (episode.id !in store.automaticDownloadIds() || store.progress(episode.id).completed)) return@withLock
             val existing = downloads()[episode.id]
             if (existing != null && existing.status != DownloadStatus.Failed) return@withLock
-            store.downloadIds()[episode.id]?.let { manager.remove(it) }
-            downloadFile(episode.id)?.delete()
-            val request = DownloadManager.Request(podcastUrl(episode.audioUrl).toASCIIString().toUri())
-                .setTitle(episode.title).setDescription("Podcast Android")
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_PODCASTS, "${episode.id}.audio")
-                .setAllowedOverMetered(true)
-                .setAllowedOverRoaming(false)
-            store.saveDownload(episode.id, manager.enqueue(request))
+            downloadStorage.enqueue(episode)
             publish()
         }
     }
@@ -147,15 +135,17 @@ class PodcastRepository(private val context: Context, private val directory: Pod
     suspend fun removeDownload(episode: Episode): Unit = withContext(Dispatchers.IO) {
         mutex.withLock {
             store.cancelAutomaticDownload(episode.id)
-            store.downloadIds()[episode.id]?.let { manager.remove(it) }
-            downloadFile(episode.id)?.delete()
-            store.removeDownload(episode.id)
+            downloadStorage.remove(episode.id)
             publish()
         }
     }
 
-    suspend fun updateProgress(id: String, progress: ListeningProgress, resetCompletion: Boolean = false): Unit = withContext(Dispatchers.IO) {
-        mutex.withLock { store.saveProgress(id, progress, resetCompletion); publish() }
+    suspend fun updateProgress(id: String, progress: ListeningProgress, resetCompletion: Boolean = false, listened: Boolean = false, finished: Boolean = false): Unit = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            store.saveProgress(id, progress, resetCompletion, listened)
+            if (finished && progress.completed) downloadStorage.remove(id)
+            publish()
+        }
     }
 
     suspend fun saveQueue(id: String, name: String, episodeId: String? = null): Unit = withContext(Dispatchers.IO) {
@@ -194,7 +184,7 @@ class PodcastRepository(private val context: Context, private val directory: Pod
         configureBackgroundSync()
     }
 
-    suspend fun configureBackgroundSync(): Unit = withContext(Dispatchers.IO) { PodcastSyncJob.schedule(context, store.needsBackgroundSync()) }
+    suspend fun configureBackgroundSync(): Unit = withContext(Dispatchers.IO) { PodcastSyncJob.schedule(context, store.needsBackgroundSync() || store.library().podcasts.any { settings.options(it.feedUrl).notifications }) }
 
     suspend fun processAutomaticDownloads(): Unit = withContext(Dispatchers.IO) {
         for (id in store.automaticDownloadIds()) {
@@ -213,41 +203,9 @@ class PodcastRepository(private val context: Context, private val directory: Pod
         configureBackgroundSync()
     }
 
-    fun audioUri(episode: Episode): Uri {
-        val file = downloadFile(episode.id)
-        if (file?.isFile != true) return episode.audioUrl.toUri()
-        if (mutableLibrary.value.downloads[episode.id]?.status == DownloadStatus.Complete) return Uri.fromFile(file)
-        val managerId = store.downloadId(episode.id) ?: return episode.audioUrl.toUri()
-        val complete = manager.query(DownloadManager.Query().setFilterById(managerId)).use { cursor ->
-            cursor.moveToFirst() && cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_SUCCESSFUL
-        }
-        return if (complete) Uri.fromFile(file) else episode.audioUrl.toUri()
-    }
+    fun audioUri(episode: Episode): Uri = downloadStorage.audioUri(episode, mutableLibrary.value)
 
-    private fun publish(): Unit { mutableLibrary.value = store.library(episodeLimit, preferences.getString("current", null)).copy(downloads = downloads()) }
+    private fun publish(): Unit { mutableLibrary.value = store.library(episodeLimit, preferences.getString("current", null), historyLimit).copy(downloads = downloads()) }
 
-    private fun downloadFile(id: String): File? = context.getExternalFilesDir(Environment.DIRECTORY_PODCASTS)?.let { File(it, "$id.audio") }
-
-    private fun downloads(): Map<String, EpisodeDownload> {
-        val ids = store.downloadIds()
-        if (ids.isEmpty()) return emptyMap()
-        val result = ids.mapValues { EpisodeDownload(it.value, DownloadStatus.Failed) }.toMutableMap()
-        manager.query(DownloadManager.Query().setFilterById(*ids.values.toLongArray())).use { cursor ->
-            while (cursor.moveToNext()) {
-                val managerId = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_ID))
-                val id = ids.entries.firstOrNull { it.value == managerId }?.key ?: continue
-                val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                val total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                val downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
-                val state = when (status) {
-                    DownloadManager.STATUS_SUCCESSFUL -> if (downloadFile(id)?.isFile == true) DownloadStatus.Complete else DownloadStatus.Failed
-                    DownloadManager.STATUS_RUNNING -> DownloadStatus.Running
-                    DownloadManager.STATUS_PENDING, DownloadManager.STATUS_PAUSED -> DownloadStatus.Waiting
-                    else -> DownloadStatus.Failed
-                }
-                result[id] = EpisodeDownload(managerId, state, if (total > 0) (downloaded * 100 / total).toInt().coerceIn(0, 100) else 0)
-            }
-        }
-        return result
-    }
+    private fun downloads(): Map<String, EpisodeDownload> = downloadStorage.downloads()
 }

@@ -22,17 +22,19 @@ class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private var queueSync: kotlinx.coroutines.Job? = null
     private var speedController: PlaybackSpeedController? = null
+    private var skipController: PlaybackSkipController? = null
     private var ticker: kotlinx.coroutines.Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val repository: PodcastRepository get() = (application as PodcastApplication).repository
 
     override fun onCreate(): Unit {
         super.onCreate()
-        val player = ExoPlayer.Builder(this).build().apply {
+        val player = ExoPlayer.Builder(this).setSeekBackIncrementMs(15_000).setSeekForwardIncrementMs(30_000).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build(), true)
             setHandleAudioBecomingNoisy(true)
             setWakeMode(C.WAKE_MODE_LOCAL)
         }
+        skipController = PlaybackSkipController(player, repository.settings)
         speedController = PlaybackSpeedController(player, repository.settings)
         val activity = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         session = MediaSession.Builder(this, player).setSessionActivity(activity).build()
@@ -47,9 +49,9 @@ class PlaybackService : MediaSessionService() {
                 if (id != newPosition.mediaItem?.mediaId) {
                     scope.launch {
                         val old = repository.store.progress(id)
-                        repository.updateProgress(id, old.copy(positionMs = oldPosition.positionMs, completed = old.completed || reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION))
+                        repository.updateProgress(id, old.copy(positionMs = oldPosition.positionMs, completed = old.completed || reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION), listened = reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION, finished = reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION)
                     }
-                }
+                } else if (reason == Player.DISCONTINUITY_REASON_SEEK) persist(player)
             }
         })
         repository.preferences.getString("current", null)?.let { id ->
@@ -65,48 +67,18 @@ class PlaybackService : MediaSessionService() {
         }
         queueSync = scope.launch {
             repository.load()
-            repository.library.collect { library ->
-                val active = repository.preferences.getString("active_queue", null) ?: return@collect
-                val queue = library.queues.firstOrNull { it.id == active }
-                val current = player.currentMediaItem?.mediaId
-                val desired = queuePlaybackIds(queue, current, library)
-                if (queue == null || desired.isEmpty()) repository.preferences.edit { remove("active_queue") }
-                val existing = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
-                if (current != null && current in existing && current in desired) {
-                    // Keep the current audio buffer while removing finished items or changing order.
-                    for (index in player.mediaItemCount - 1 downTo 0) if (player.getMediaItemAt(index).mediaId !in desired) player.removeMediaItem(index)
-                    desired.forEachIndexed { target, id ->
-                        val from = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == id }
-                        if (from == null) library.episodes.firstOrNull { it.id == id }?.let { player.addMediaItem(target, it.mediaItem(repository)) }
-                        else if (from != target) player.moveMediaItem(from, target)
-                    }
-                } else if (existing != desired) {
-                    val position = player.currentPosition.coerceAtLeast(0)
-                    val playing = player.playWhenReady
-                    val index = desired.indexOf(current).takeIf { it >= 0 } ?: 0
-                    val start = if (desired.getOrNull(index) == current) position else desired.getOrNull(index)?.let { library.progress[it]?.positionMs } ?: 0
-                    player.setMediaItems(desired.mapNotNull { id -> library.episodes.firstOrNull { it.id == id }?.mediaItem(repository) }, index, start)
-                    if (desired.isNotEmpty()) { player.prepare(); player.playWhenReady = playing }
-                }
-                // Downloads can finish after playback started. Future items must use the local file.
-                for (index in 0 until player.mediaItemCount) {
-                    if (index == player.currentMediaItemIndex && player.isPlaying) continue
-                    val old = player.getMediaItemAt(index)
-                    val updated = library.episodes.firstOrNull { it.id == old.mediaId }?.mediaItem(repository) ?: continue
-                    if (old.localConfiguration?.uri != updated.localConfiguration?.uri) {
-                        val isCurrent = index == player.currentMediaItemIndex
-                        val position = player.currentPosition.coerceAtLeast(0)
-                        player.replaceMediaItem(index, updated)
-                        if (isCurrent) { player.seekTo(index, position); player.prepare() }
-                    }
-                }
-            }
+            repository.library.collect { library -> synchronizePlaybackQueue(player, repository, library) }
         }
         ticker = scope.launch {
+            var ticks = 0
             while (true) {
-                delay(5000)
+                delay(1000)
+                ticks++
+                if (skipController?.endReached() == true) {
+                    finishSkippedEpisode(player) { id, duration -> repository.updateProgress(id, ListeningProgress(duration, duration, true), listened = true, finished = true) }
+                }
                 if (player.playerError != null && repository.preferences.contains("active_queue")) repository.load()
-                if (player.playbackState != Player.STATE_ENDED) persist(player)
+                if (ticks % 5 == 0 && player.isPlaying) persist(player)
             }
         }
     }
@@ -115,7 +87,9 @@ class PlaybackService : MediaSessionService() {
         val id = player.currentMediaItem?.mediaId ?: return
         if (player.playbackState == Player.STATE_IDLE) return
         val progress = ListeningProgress(player.currentPosition.coerceAtLeast(0), player.duration.coerceAtLeast(0), player.playbackState == Player.STATE_ENDED)
-        scope.launch { repository.updateProgress(id, progress) }
+        val listened = player.isPlaying
+        val finished = player.playbackState == Player.STATE_ENDED
+        scope.launch { repository.updateProgress(id, progress, listened = listened, finished = finished) }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
@@ -125,6 +99,8 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy(): Unit {
+        skipController?.close()
+        skipController = null
         speedController?.close()
         speedController = null
         ticker?.cancel()
@@ -132,26 +108,12 @@ class PlaybackService : MediaSessionService() {
         val player = session?.player
         val id = player?.currentMediaItem?.mediaId
         val progress = player?.let { ListeningProgress(it.currentPosition.coerceAtLeast(0), it.duration.coerceAtLeast(0), id?.let { key -> repository.store.progress(key).completed } == true) }
+        val finished = player?.playbackState == Player.STATE_ENDED
         session?.run { this.player.release(); release() }
         session = null
         if (id != null && progress != null) {
-            scope.launch { try { repository.updateProgress(id, progress) } finally { scope.cancel() } }
+            scope.launch { try { repository.updateProgress(id, progress, finished = finished) } finally { scope.cancel() } }
         } else scope.cancel()
         super.onDestroy()
     }
-}
-
-fun queuePlaybackIds(queue: PlaybackQueue?, currentId: String?, library: Library): List<String> {
-    val valid = library.episodes.map { it.id }.toSet()
-    val ids = queue?.episodeIds.orEmpty().filter { it in valid && library.progress[it]?.completed != true }
-    return if (currentId != null && currentId in valid && library.progress[currentId]?.completed != true && currentId !in ids) listOf(currentId) + ids else ids
-}
-
-fun Episode.mediaItem(repository: PodcastRepository): MediaItem {
-    val podcast = repository.library.value.podcasts.firstOrNull { it.feedUrl == feedUrl } ?: repository.store.podcast(feedUrl)
-    return MediaItem.Builder().setMediaId(id).setUri(repository.audioUri(this))
-        .setMediaMetadata(androidx.media3.common.MediaMetadata.Builder().setTitle(title).setArtist(podcast?.title)
-            .setExtras(android.os.Bundle().apply { putString("feed_url", feedUrl) })
-            .setArtworkUri((artwork.ifBlank { podcast?.artwork.orEmpty() }).takeIf { it.isNotBlank() }?.let(android.net.Uri::parse)).build())
-        .build()
 }

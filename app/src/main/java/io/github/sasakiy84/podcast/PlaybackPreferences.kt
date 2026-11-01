@@ -17,6 +17,13 @@ class PlaybackPreferences(private val preferences: SharedPreferences) {
     fun setSpeed(value: Float, feed: String? = null): Unit = preferences.edit { putFloat(feed?.let(::key) ?: "speed", value.coerceIn(0.5f, 3f)) }
     fun useGlobal(feed: String): Unit = preferences.edit { remove(key(feed)) }
     fun setSort(value: PodcastSort): Unit = preferences.edit { putString("podcast_sort", value.name) }
+    private fun optionKey(feed: String, name: String): String = "option:$name:${stableId(feed)}"
+    fun options(feed: String): PodcastOptions = PodcastOptions(preferences.getBoolean(optionKey(feed, "notify"), false), preferences.getInt(optionKey(feed, "start"), 0), preferences.getInt(optionKey(feed, "end"), 0))
+    fun setOptions(feed: String, value: PodcastOptions): Unit = preferences.edit {
+        putBoolean(optionKey(feed, "notify"), value.notifications)
+        putInt(optionKey(feed, "start"), value.skipStartSeconds.coerceIn(0, 3600))
+        putInt(optionKey(feed, "end"), value.skipEndSeconds.coerceIn(0, 3600))
+    }
     fun listen(listener: SharedPreferences.OnSharedPreferenceChangeListener): Unit = preferences.registerOnSharedPreferenceChangeListener(listener)
     fun unlisten(listener: SharedPreferences.OnSharedPreferenceChangeListener): Unit = preferences.unregisterOnSharedPreferenceChangeListener(listener)
 }

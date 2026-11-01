@@ -60,7 +60,7 @@ class PodcastDownloadsTest {
     }
 
     @Test
-    fun completedEpisodeLeavesAllQueuesButKeepsDownloadedAudio(): Unit = runBlocking {
+    fun manuallyMarkedEpisodeLeavesAllQueuesButKeepsDownloadedAudio(): Unit = runBlocking {
         repository.store.saveQueue("news", "ニュース")
         repository.store.saveQueue("tech", "技術")
         repository.store.addToQueue("news", episode.id); repository.store.addToQueue("tech", episode.id)
@@ -119,4 +119,46 @@ class PodcastDownloadsTest {
         assertTrue(repository.store.downloadIds().isEmpty())
         assertFalse(file.exists())
     }
+    @Test fun finishingPlaybackRemovesAudioAndDownloadRecordButKeepsHistoryAndFavorite(): Unit = runBlocking {
+        repository.store.saveQueue("news", "ニュース")
+        repository.store.saveQueue("tech", "技術")
+        repository.store.addToQueue("news", episode.id); repository.store.addToQueue("tech", episode.id)
+        repository.setFavorite(episode.id, true)
+        repository.download(episode)
+        file.parentFile?.mkdirs(); file.writeBytes(byteArrayOf(1, 2, 3))
+        repository.updateProgress(episode.id, ListeningProgress(50, 100), listened = true)
+        assertTrue(file.exists())
+        repository.updateProgress(episode.id, ListeningProgress(100, 100, true), listened = true, finished = true)
+        assertFalse(file.exists())
+        assertTrue(repository.store.downloadIds().isEmpty())
+        assertTrue(repository.library.value.downloads.isEmpty())
+        assertEquals(0, shadowOf(manager).requestCount)
+        assertTrue(repository.store.queues().all { it.episodeIds.isEmpty() })
+        assertTrue(episode.id in repository.library.value.favorites)
+        assertEquals(listOf(episode.id), repository.library.value.historyIds)
+        assertTrue(repository.store.progress(episode.id).completed)
+        assertEquals(Uri.parse(episode.audioUrl), repository.audioUri(episode))
+        repository.load()
+        assertTrue(repository.library.value.downloads.isEmpty())
+    }
+
+    @Test fun finishedLocalAudioCanBeReplayedFromTheNetworkWithoutAnActiveQueue(): Unit = runBlocking {
+        repository.download(episode)
+        val request: ShadowDownloadManager.ShadowRequest = Shadow.extract(shadowOf(manager).getRequest(requireNotNull(repository.store.downloadId(episode.id))))
+        request.setStatus(DownloadManager.STATUS_SUCCESSFUL)
+        file.parentFile?.mkdirs(); file.writeBytes(byteArrayOf(1, 2, 3))
+        repository.load()
+        val player = androidx.media3.exoplayer.ExoPlayer.Builder(context).build()
+        try {
+            player.setMediaItem(episode.mediaItem(repository, applyStartSkip = false))
+            assertEquals(Uri.fromFile(file), player.currentMediaItem!!.localConfiguration!!.uri)
+            repository.updateProgress(episode.id, ListeningProgress(100, 100, true), finished = true)
+            synchronizePlaybackQueue(player, repository, repository.library.value)
+            assertEquals(Uri.parse(episode.audioUrl), player.currentMediaItem!!.localConfiguration!!.uri)
+            assertFalse(player.currentMediaItem!!.mediaMetadata.extras!!.getBoolean("apply_start_skip", true))
+            assertFalse(player.playWhenReady)
+            assertEquals(androidx.media3.common.Player.STATE_IDLE, player.playbackState)
+        } finally { player.release() }
+    }
+
 }

@@ -31,7 +31,7 @@ class PodcastScreenshotTest {
         Podcast("https://example.org/feed/$i", listOf("朝のノート", "技術のテーブル", "世界のニュース", "深呼吸ラジオ", "English Daily", "今週の話", "デザインの時間", "科学の窓", "日々のこと")[i], "音の便り", artwork(title, i), "日々の小さな発見を、ゆっくり話す番組です。毎週、新しいエピソードをお届けします。", website = "https://example.org/show/$i")
     }
     private val episodes = listOf("静かな朝のつづき", "小さな習慣を見つける", "技術と暮らしの接点", "世界のニュースを振り返る", "週末のコーヒー", "言葉を学ぶ楽しさ").mapIndexed { i, title ->
-        Episode("episode-$i", shows[if (i < 2) 0 else i - 1].feedUrl, title, "https://example.org/$i.mp3", "コーヒーを淹れながら、今日の予定を考えます。\n\n今回のテーマは、毎日の暮らしにある小さな発見。最近の出来事や読んだ本についても話しています。", 1_793_491_200_000L - i * 86_400_000L, (30 + i * 7) * 60_000L)
+        Episode("episode-$i", shows[if (i < 2) 0 else i - 1].feedUrl, title, "https://example.org/$i.mp3", "コーヒーを淹れながら、今日の予定を考えます。\n\n今回のテーマは、毎日の暮らしにある小さな発見。最近の出来事や読んだ本についても話しています。", 1_793_491_200_000L - i * 86_400_000L, (30 + i * 7) * 60_000L, chapters = if (i == 0) listOf(EpisodeChapter(0, "はじめに"), EpisodeChapter(222_000, "暮らしと習慣"), EpisodeChapter(600_000, "今日の本")) else emptyList())
     }
     private val queues = listOf(PlaybackQueue("news", "ニュース", episodes.filterIndexed { i, _ -> i != 1 }.take(3).map { it.id }), PlaybackQueue("tech", "技術", listOf(episodes[2].id)), PlaybackQueue("english", "英語学習"))
     private val library = Library(shows, episodes,
@@ -51,7 +51,7 @@ class PodcastScreenshotTest {
         compose.setContent { PodcastApp(ui.value) }
         fun shot(name: String): Unit = screenshot(theme, name)
         fun tab(name: String): Unit { compose.onNodeWithContentDescription("タブ: $name").performClick() }
-        fun text(label: String): Unit { compose.onNodeWithText(label).performClick() }
+        fun text(label: String): Unit { compose.onNode(hasText(label) and !hasContentDescription("エピソード詳細:", substring = true)).performClick() }
         fun icon(label: String): Unit { compose.onNodeWithContentDescription(label).performClick() }
         fun replace(value: PodcastUiState): Unit { compose.runOnIdle { ui.value = value }; compose.waitForIdle() }
 
@@ -72,6 +72,11 @@ class PodcastScreenshotTest {
         text("再生速度 1.0×")
         shot("39-podcast-speed")
         text("完了")
+        replace(base.copy(podcastOptions = mapOf(shows[0].feedUrl to PodcastOptions(true, 45, 30))))
+        icon("番組の設定")
+        shot("45-podcast-settings")
+        text("保存")
+        replace(base)
         icon("購読を解除")
         shot("03-unsubscribe-confirmation")
         text("キャンセル")
@@ -86,7 +91,12 @@ class PodcastScreenshotTest {
         replace(base.copy(library = library.copy(favorites = setOf(episodes[0].id, episodes[2].id))))
         compose.onNodeWithText("お気に入り").performScrollTo().performClick()
         shot("40-favorites")
-        compose.onNodeWithText("ダウンロード").performScrollTo().performClick()
+        replace(base.copy(library = library.copy(historyIds = listOf(episodes[2].id, episodes[0].id, episodes[1].id))))
+        compose.onNodeWithTag("episode-filters").performScrollToNode(hasText("再生履歴"))
+        text("再生履歴")
+        shot("47-listening-history")
+        compose.onNodeWithTag("episode-filters").performScrollToNode(hasText("ダウンロード"))
+        compose.onNodeWithText("ダウンロード").performClick()
         replace(base)
         compose.onNodeWithContentDescription("エピソード詳細: ${episodes[0].title}").performTouchInput { swipeLeft() }
         shot("41-swipe-left")
@@ -96,6 +106,9 @@ class PodcastScreenshotTest {
         text("完了")
         icon("エピソード詳細: ${episodes[0].title}")
         shot("07-episode-details")
+        icon("コピーする項目")
+        shot("48-copy-menu")
+        text("タイトルをコピー")
         text("キューに追加・編集")
         shot("08-queue-membership")
         text("完了")
@@ -136,6 +149,9 @@ class PodcastScreenshotTest {
         compose.onNodeWithContentDescription("再生位置").assertIsDisplayed()
         compose.onNodeWithContentDescription("ダウンロード").assertDoesNotExist()
         shot("20-player")
+        text("チャプター")
+        shot("46-player-chapters")
+        text("再生中")
         icon("再生速度 1.0×")
         shot("21-playback-speed")
         text("1.5×")

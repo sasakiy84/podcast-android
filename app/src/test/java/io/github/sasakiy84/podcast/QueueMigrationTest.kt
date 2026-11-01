@@ -50,6 +50,7 @@ class QueueMigrationTest {
             old.writableDatabase.apply {
                 execSQL("DROP TABLE favorites"); execSQL("DROP INDEX episodes_published"); execSQL("DROP INDEX episodes_feed_published")
                 execSQL("ALTER TABLE podcasts DROP COLUMN website")
+                execSQL("DROP TABLE listening_history"); execSQL("ALTER TABLE episodes DROP COLUMN chapters"); execSQL("ALTER TABLE episodes DROP COLUMN chapters_url")
                 version = 2
             }
         }

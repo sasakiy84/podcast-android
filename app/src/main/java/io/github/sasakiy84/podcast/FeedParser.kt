@@ -30,6 +30,7 @@ object FeedParser {
             var validRoot = false
             var closedRoot = false
             var entry: MutableMap<String, String>? = null
+            var chapters = mutableListOf<EpisodeChapter>()
             val episodes = mutableListOf<Episode>()
             val texts = mutableListOf<StringBuilder>()
             var event = parser.eventType
@@ -42,8 +43,18 @@ object FeedParser {
                         if (path.size > 64) throw PodcastException("フィードの入れ子が深すぎるため読み取れません。")
                         texts.add(StringBuilder())
                         if (path.size == 1) validRoot = tag in listOf("rss", "feed", "rdf")
-                        if (tag == "item" || tag == "entry") entry = mutableMapOf()
+                        if (tag == "item" || tag == "entry") { entry = mutableMapOf(); chapters = mutableListOf() }
                         val current = entry
+                        if (current != null && tag == "chapter" && parser.namespace == "http://podlove.org/simple-chapters") {
+                            val start = parser.getAttributeValue(null, "start").orEmpty()
+                            if (start.isNotBlank() && start.split(':').all { it.toDoubleOrNull()?.let { n -> n.isFinite() && n >= 0 } == true }) chapters += EpisodeChapter(parseDuration(start), parser.getAttributeValue(null, "title").orEmpty(), absoluteUrl(baseUrl, parser.getAttributeValue(null, "href").orEmpty()), absoluteUrl(baseUrl, parser.getAttributeValue(null, "image").orEmpty()))
+                        }
+                        if (current != null && tag == "chapters" && parser.namespace == "https://podcastindex.org/namespace/1.0") current["chaptersUrl"] = absoluteUrl(baseUrl, parser.getAttributeValue(null, "url").orEmpty())
+                        if (path.dropLast(1).any { it in listOf("description", "summary", "content", "encoded") }) {
+                            texts.last().append("<").append(tag)
+                            if (tag == "a") texts.last().append(" href=\"").append(org.jsoup.nodes.Entities.escape(parser.getAttributeValue(null, "href").orEmpty())).append("\"")
+                            texts.last().append(">")
+                        }
                         if (tag == "link" && current == null && parser.getAttributeValue(null, "rel").orEmpty() in listOf("", "alternate")) {
                             absoluteUrl(baseUrl, parser.getAttributeValue(null, "href").orEmpty()).takeIf { it.isNotBlank() }?.let { website = it }
                         }
@@ -70,7 +81,10 @@ object FeedParser {
                         if (current != null) {
                             when (tag) {
                                 "title", "guid", "id", "pubdate", "published", "updated", "duration" -> if (value.isNotBlank()) current[tag] = value
-                                "description", "summary", "content", "encoded" -> if (value.isNotBlank()) current["description"] = plainText(value)
+                                "description", "summary", "content", "encoded" -> if (value.isNotBlank()) {
+                                    val priority = when (tag) { "encoded", "content" -> 3; "description" -> 2; else -> 1 }
+                                    if (priority >= (current["descriptionPriority"]?.toIntOrNull() ?: 0)) { current["description"] = descriptionText(value, baseUrl); current["descriptionPriority"] = priority.toString() }
+                                }
                             }
                             if (tag == "item" || tag == "entry") {
                                 val audio = current["audio"].orEmpty()
@@ -82,6 +96,7 @@ object FeedParser {
                                         description = current["description"].orEmpty(),
                                         published = parseDate(current["pubdate"] ?: current["published"] ?: current["updated"].orEmpty()),
                                         durationMs = parseDuration(current["duration"].orEmpty()), artwork = current["image"].orEmpty(),
+                                        chapters = chapters.distinctBy { it.startMs }.sortedBy { it.startMs }, chaptersUrl = current["chaptersUrl"].orEmpty(),
                                     )
                                 }
                                 entry = null
@@ -91,13 +106,15 @@ object FeedParser {
                                 tag == "title" && "image" !in path -> if (value.isNotBlank()) title = value
                                 tag in listOf("author", "managingeditor", "name") -> if (value.isNotBlank()) author = plainText(value)
                                 tag == "link" && value.isNotBlank() -> website = absoluteUrl(baseUrl, value)
-                                tag == "description" || tag == "subtitle" -> if (value.isNotBlank()) description = plainText(value)
+                                tag == "description" || tag == "subtitle" -> if (value.isNotBlank()) description = descriptionText(value, baseUrl)
                                 tag == "url" && "image" in path -> artwork = absoluteUrl(baseUrl, value)
                             }
                         }
                         if (path.isNotEmpty()) path.removeAt(path.lastIndex)
                         if (path.isEmpty()) closedRoot = true
-                        if (path.any { it in textContainers }) texts.lastOrNull()?.append(' ')?.append(value)
+                        if (path.any { it in textContainers }) texts.lastOrNull()?.apply {
+                            if (path.any { it in listOf("description", "summary", "content", "encoded") }) append(value).apply { if (tag !in listOf("br", "hr", "img", "wbr")) append("</$tag>") } else append(' ').append(value)
+                        }
                     }
                 }
                 event = parser.nextToken()

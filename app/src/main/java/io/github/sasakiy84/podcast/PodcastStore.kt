@@ -8,7 +8,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import androidx.core.database.sqlite.transaction
 
 /** A private database keeps subscriptions, downloaded IDs and listening history on this device. */
-class PodcastStore(context: Context, databaseName: String = "podcasts.db") : SQLiteOpenHelper(context, databaseName, null, 3) {
+class PodcastStore(context: Context, databaseName: String = "podcasts.db") : SQLiteOpenHelper(context, databaseName, null, 4) {
     override fun onCreate(db: SQLiteDatabase): Unit {
         db.execSQL("CREATE TABLE podcasts (feed TEXT PRIMARY KEY, title TEXT NOT NULL, author TEXT NOT NULL, artwork TEXT NOT NULL, description TEXT NOT NULL, website TEXT NOT NULL DEFAULT '')")
         db.execSQL("CREATE TABLE episodes (id TEXT PRIMARY KEY, feed TEXT NOT NULL, title TEXT NOT NULL, audio TEXT NOT NULL, description TEXT NOT NULL, published INTEGER NOT NULL, duration INTEGER NOT NULL, artwork TEXT NOT NULL)")
@@ -17,6 +17,7 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") : SQL
         db.execSQL("CREATE TABLE downloads (id TEXT PRIMARY KEY, manager_id INTEGER NOT NULL)")
         createQueues(db)
         createLibraryIndexes(db)
+        createEpisodeFeatures(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int): Unit {
@@ -25,6 +26,15 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") : SQL
             db.execSQL("ALTER TABLE podcasts ADD COLUMN website TEXT NOT NULL DEFAULT ''")
             createLibraryIndexes(db)
         }
+        if (oldVersion < 4) createEpisodeFeatures(db)
+    }
+
+    private fun createEpisodeFeatures(db: SQLiteDatabase): Unit {
+        db.execSQL("ALTER TABLE episodes ADD COLUMN chapters TEXT NOT NULL DEFAULT '[]'")
+        db.execSQL("ALTER TABLE episodes ADD COLUMN chapters_url TEXT NOT NULL DEFAULT ''")
+        db.execSQL("CREATE TABLE listening_history (id TEXT PRIMARY KEY, listened INTEGER NOT NULL)")
+        db.execSQL("CREATE INDEX history_listened ON listening_history(listened DESC)")
+        db.execSQL("INSERT INTO listening_history SELECT id, 0 FROM progress WHERE position > 0 OR completed = 1")
     }
 
     private fun createLibraryIndexes(db: SQLiteDatabase): Unit {
@@ -71,7 +81,7 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") : SQL
                 val isNew = episode.id !in existing
                 db.insertWithOnConflict("episodes", null, ContentValues().apply {
                     put("id", episode.id); put("feed", p.feedUrl); put("title", episode.title); put("audio", episode.audioUrl)
-                    put("description", episode.description.take(64_000)); put("published", episode.published); put("duration", episode.durationMs); put("artwork", episode.artwork)
+                    put("description", episode.description.take(64_000)); put("published", episode.published); put("duration", episode.durationMs); put("artwork", episode.artwork); put("chapters", EpisodeChapters.encode(episode.chapters)); put("chapters_url", episode.chaptersUrl)
                 }, SQLiteDatabase.CONFLICT_REPLACE)
                 if (isNew && episode.id !in completed) {
                     val matching = feedRules.filter { it.matches(episode) }
@@ -82,11 +92,11 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") : SQL
         }
     }
 
-    fun library(limit: Int = 1000, currentId: String? = null): Library {
+    fun library(limit: Int = 1000, currentId: String? = null, historyLimit: Int = 150): Library {
         val shows = readableDatabase.rawQuery("SELECT * FROM podcasts ORDER BY title COLLATE NOCASE", null).use { c ->
             buildList { while (c.moveToNext()) add(Podcast(c.string("feed"), c.string("title"), c.string("author"), c.string("artwork"), c.string("description"), c.string("website"))) }
         }
-        val episodes = readableDatabase.rawQuery("SELECT $episodePreview FROM episodes WHERE id IN (SELECT id FROM episodes ORDER BY published DESC, rowid DESC LIMIT ?) OR id IN (SELECT episode_id FROM queue_entries UNION SELECT id FROM favorites UNION SELECT id FROM downloads) OR id = ? ORDER BY published DESC, rowid DESC", arrayOf(limit.coerceAtLeast(1).toString(), currentId.orEmpty())).use { c ->
+        val episodes = readableDatabase.rawQuery("SELECT $episodePreview FROM episodes WHERE id IN (SELECT id FROM episodes ORDER BY published DESC, rowid DESC LIMIT ?) OR id IN (SELECT episode_id FROM queue_entries UNION SELECT id FROM favorites UNION SELECT id FROM downloads) OR id IN (SELECT id FROM listening_history ORDER BY listened DESC, rowid DESC LIMIT " + historyLimit.coerceAtLeast(1) + ") OR id = ? ORDER BY published DESC, rowid DESC", arrayOf(limit.coerceAtLeast(1).toString(), currentId.orEmpty())).use { c ->
             buildList { while (c.moveToNext()) add(c.episode()) }
         }
         val progress = readableDatabase.rawQuery("SELECT * FROM progress", null).use { c ->
@@ -99,10 +109,14 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") : SQL
         }
         val favorites = readableDatabase.rawQuery("SELECT id FROM favorites", null).use { c -> buildSet { while (c.moveToNext()) add(c.getString(0)) } }
         return Library(shows, episodes, progress, queues = queues(), queueRules = rules(), autoDownloadFeeds = autoDownloadFeeds(), favorites = favorites,
-            latestEpisodes = latest, episodeCounts = counts, hasMoreEpisodes = counts.values.sum() > limit)
+            latestEpisodes = latest, episodeCounts = counts, hasMoreEpisodes = counts.values.sum() > limit,
+            historyIds = readableDatabase.rawQuery("SELECT id FROM listening_history ORDER BY listened DESC, rowid DESC LIMIT ?", arrayOf(historyLimit.toString())).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } },
+            hasMoreHistory = readableDatabase.rawQuery("SELECT COUNT(*) FROM listening_history", null).use { it.moveToFirst(); it.getInt(0) > historyLimit })
     }
 
-    private val episodePreview = "id, feed, title, audio, substr(description, 1, 512) AS description, published, duration, artwork"
+    private val episodePreview = "id, feed, title, audio, substr(description, 1, 512) AS description, published, duration, artwork, chapters, chapters_url"
+
+    fun episodeIds(feed: String): Set<String> = readableDatabase.rawQuery("SELECT id FROM episodes WHERE feed = ?", arrayOf(feed)).use { c -> buildSet { while (c.moveToNext()) add(c.getString(0)) } }
 
     fun podcastEpisodes(feedUrl: String, limit: Int = 150): PodcastEpisodePage {
         val total = readableDatabase.rawQuery("SELECT COUNT(*) FROM episodes WHERE feed = ?", arrayOf(feedUrl)).use { it.moveToFirst(); it.getInt(0) }
@@ -129,11 +143,12 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") : SQL
         if (c.moveToFirst()) ListeningProgress(c.long("position"), c.long("duration"), c.long("completed") != 0L) else ListeningProgress()
     }
 
-    fun saveProgress(id: String, progress: ListeningProgress, resetCompletion: Boolean = false): Unit {
+    fun saveProgress(id: String, progress: ListeningProgress, resetCompletion: Boolean = false, listened: Boolean = false): Unit {
         if (episode(id) == null) return
         writableDatabase.transaction {
+            if (listened) insertWithOnConflict("listening_history", null, ContentValues().apply { put("id", id); put("listened", System.currentTimeMillis()) }, SQLiteDatabase.CONFLICT_REPLACE)
             val previous = this@PodcastStore.progress(id)
-            val value = if (!resetCompletion && previous.completed && !progress.completed) previous else progress
+            val value = if (!resetCompletion && previous.completed && !progress.completed) previous else progress.copy(durationMs = progress.durationMs.takeIf { it > 0 } ?: previous.durationMs)
             writableDatabase.insertWithOnConflict("progress", null, ContentValues().apply {
                 put("id", id); put("position", value.positionMs.coerceAtLeast(0)); put("duration", value.durationMs.coerceAtLeast(0)); put("completed", if (value.completed) 1 else 0)
             }, SQLiteDatabase.CONFLICT_REPLACE)
@@ -245,7 +260,7 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") : SQL
     fun unsubscribe(feedUrl: String): Unit {
         val db = writableDatabase
         db.transaction {
-            for (table in listOf("progress", "downloads", "favorites")) db.execSQL("DELETE FROM $table WHERE id IN (SELECT id FROM episodes WHERE feed = ?)", arrayOf(feedUrl))
+            for (table in listOf("progress", "downloads", "favorites", "listening_history")) db.execSQL("DELETE FROM $table WHERE id IN (SELECT id FROM episodes WHERE feed = ?)", arrayOf(feedUrl))
             for (table in listOf("queue_entries", "automatic_downloads")) db.execSQL("DELETE FROM $table WHERE episode_id IN (SELECT id FROM episodes WHERE feed = ?)", arrayOf(feedUrl))
             db.delete("queue_rules", "feed = ?", arrayOf(feedUrl))
             db.delete("podcast_options", "feed = ?", arrayOf(feedUrl))
@@ -254,7 +269,7 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") : SQL
         }
     }
 
-    private fun Cursor.episode(): Episode = Episode(string("id"), string("feed"), string("title"), string("audio"), string("description"), long("published"), long("duration"), string("artwork"))
+    private fun Cursor.episode(): Episode = Episode(string("id"), string("feed"), string("title"), string("audio"), string("description"), long("published"), long("duration"), string("artwork"), EpisodeChapters.decode(string("chapters")), string("chapters_url"))
     private fun Cursor.string(name: String): String = getString(getColumnIndexOrThrow(name))
     private fun Cursor.long(name: String): Long = getLong(getColumnIndexOrThrow(name))
 }
