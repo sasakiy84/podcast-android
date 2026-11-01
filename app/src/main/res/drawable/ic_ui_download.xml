@@ -1,0 +1,4 @@
+<!-- Copyright 2025 The Android Open Source Project. Apache-2.0; see third_party/material-icons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24.0" android:viewportHeight="24.0" android:autoMirrored="false">
+    <path android:fillColor="#ff000000" android:fillAlpha="1.0" android:fillType="nonZero" android:pathData="M5.0 20.0 h14.0 v-2.0 H5.0 V20.0 Z M19.0 9.0 h-4.0 V3.0 H9.0 v6.0 H5.0 l7.0 7.0 L19.0 9.0 Z" />
+</vector>

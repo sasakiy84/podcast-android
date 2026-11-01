@@ -14,10 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -72,7 +68,7 @@ internal fun PlaybackQueuesPage(
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = { creating = true }) {
-                        Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+                        Icon(AppIcons.Add, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("キューを作成")
                     }
@@ -98,7 +94,7 @@ internal fun PlaybackQueuesPage(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.QueueMusic, null)
+                        Icon(AppIcons.QueueMusic, null)
                         Column(Modifier.weight(1f)) {
                             Text(
                                 item.name,
@@ -110,7 +106,7 @@ internal fun PlaybackQueuesPage(
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
-                        Icon(Icons.Default.ChevronRight, null)
+                        Icon(AppIcons.ChevronRight, null)
                     }
                     HorizontalDivider(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
@@ -121,7 +117,7 @@ internal fun PlaybackQueuesPage(
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { selectedId = null }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "キュー一覧に戻る")
+                        Icon(AppIcons.ArrowBack, "キュー一覧に戻る")
                     }
                     Text(
                         queue.name,
@@ -131,7 +127,7 @@ internal fun PlaybackQueuesPage(
                     )
                     Box {
                         IconButton(onClick = { queueMenu = true }) {
-                            Icon(Icons.Default.MoreVert, "キューのメニュー")
+                            Icon(AppIcons.MoreVert, "キューのメニュー")
                         }
                         DropdownMenu(
                             expanded = queueMenu,
@@ -178,7 +174,7 @@ internal fun PlaybackQueuesPage(
                         enabled = queue.episodeIds.isNotEmpty() && state.playback.connected,
                         modifier = Modifier.semantics { contentDescription = "キューを再生" },
                     ) {
-                        Icon(Icons.Default.PlayArrow, null)
+                        Icon(AppIcons.PlayArrow, null)
                         Spacer(Modifier.width(6.dp))
                         Text("再生")
                     }
@@ -234,14 +230,14 @@ internal fun PlaybackQueuesPage(
                                     )
                             }
                             IconButton(onClick = { ruleEditor = rule }) {
-                                Icon(Icons.Default.Edit, "自動追加ルールを編集")
+                                Icon(AppIcons.Edit, "自動追加ルールを編集")
                             }
                             IconButton(
                                 onClick = {
                                     action(PodcastAction.DeleteQueueRule(queue.id, rule.feedUrl))
                                 }
                             ) {
-                                Icon(Icons.Default.Close, "この自動追加ルールを削除")
+                                Icon(AppIcons.Close, "この自動追加ルールを削除")
                             }
                         }
                     }
@@ -319,7 +315,7 @@ internal fun PlaybackQueuesPage(
                                 }
                             }
                             Icon(
-                                Icons.Default.DragHandle,
+                                AppIcons.DragHandle,
                                 "ドラッグして並べ替え: ${state.library.episodes.firstOrNull { it.id == id }?.title.orEmpty()}",
                                 Modifier.size(width = 32.dp, height = 48.dp)
                                     .alpha(.6f)

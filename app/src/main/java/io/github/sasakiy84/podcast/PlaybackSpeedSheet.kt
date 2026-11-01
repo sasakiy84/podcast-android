@@ -3,9 +3,6 @@ package io.github.sasakiy84.podcast
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,9 +30,9 @@ internal fun PlaybackSpeedSheet(state: PodcastUiState, feedUrl: String?, podcast
                 FilterChip(specific, { specific = true }, label = { Text("この番組") })
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { save(speed - 0.1f) }, enabled = speed > 0.5f) { Icon(Icons.Default.Remove, "速度を下げる") }
+                IconButton(onClick = { save(speed - 0.1f) }, enabled = speed > 0.5f) { Icon(AppIcons.Remove, "速度を下げる") }
                 Text("${speed}×", style = MaterialTheme.typography.headlineMedium)
-                IconButton(onClick = { save(speed + 0.1f) }, enabled = speed < 3f) { Icon(Icons.Default.Add, "速度を上げる") }
+                IconButton(onClick = { save(speed + 0.1f) }, enabled = speed < 3f) { Icon(AppIcons.Add, "速度を上げる") }
             }
             Slider(speed, { speed = it }, valueRange = 0.5f..3f, steps = 49, onValueChangeFinished = { save(speed) }, modifier = Modifier.semantics { contentDescription = "再生速度を調整" })
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -96,7 +94,7 @@ internal fun rememberEpisodeSharing(episode: Episode, state: PodcastUiState): ()
 @Composable
 internal fun EpisodeShareButton(episode: Episode, state: PodcastUiState): Unit {
     val share = rememberEpisodeSharing(episode, state)
-    IconButton(onClick = share) { Icon(Icons.Default.Share, "エピソードを共有") }
+    IconButton(onClick = share) { Icon(AppIcons.Share, "エピソードを共有") }
 }
 
 @Composable
@@ -150,7 +148,7 @@ internal fun EpisodeShareSheet(content: EpisodeShareContent, dismiss: () -> Unit
                     Text("本文をコピー")
                 }
                 Button(onClick = { shareText(context, content.episode.title, text) }) {
-                    Icon(Icons.Default.Share, null)
+                    Icon(AppIcons.Share, null)
                     Spacer(Modifier.width(8.dp))
                     Text("他のアプリへ共有")
                 }

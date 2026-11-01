@@ -5,9 +5,6 @@ package io.github.sasakiy84.podcast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -44,7 +41,7 @@ internal fun ManagementPage(
                 title = { Text("ストレージと更新") },
                 navigationIcon = {
                     IconButton(onClick = back) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "設定に戻る")
+                        Icon(AppIcons.ArrowBack, "設定に戻る")
                     }
                 },
             )
@@ -162,7 +159,7 @@ internal fun ManagementPage(
                                         }
                                     ) {
                                         Icon(
-                                            Icons.Default.Refresh,
+                                            AppIcons.Refresh,
                                             "ダウンロードを再試行: ${item.episode.title}",
                                         )
                                     }
@@ -170,7 +167,7 @@ internal fun ManagementPage(
                                     onClick = { action(PodcastAction.RemoveDownload(item.episode)) }
                                 ) {
                                     Icon(
-                                        Icons.Default.DeleteOutline,
+                                        AppIcons.DeleteOutline,
                                         "保存を削除: ${item.episode.title}",
                                     )
                                 }
@@ -195,7 +192,7 @@ internal fun ManagementPage(
                                         Modifier.size(16.dp),
                                         strokeWidth = 2.dp,
                                     )
-                                else Icon(Icons.Default.Refresh, null)
+                                else Icon(AppIcons.Refresh, null)
                                 Spacer(Modifier.width(8.dp))
                                 Text("すべて更新")
                             }
@@ -254,7 +251,7 @@ internal fun ManagementPage(
                                             Modifier.size(20.dp),
                                             strokeWidth = 2.dp,
                                         )
-                                    else Icon(Icons.Default.Refresh, "番組を再取得: ${podcast.title}")
+                                    else Icon(AppIcons.Refresh, "番組を再取得: ${podcast.title}")
                                 }
                             }
                             HorizontalDivider(Modifier.padding(top = 12.dp))

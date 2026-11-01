@@ -46,20 +46,26 @@ git push origin v0.1.1
 
 既存アプリの更新では `applicationId`（`io.github.sasakiy84.podcast`）と署名鍵を維持します。
 
-ワークフローは Secrets を検査し、UI テスト・release lint を実行して署名付き APK と AAB をビルドします。署名検証後、APK・AAB・R8 mapping・SHA256SUMS を GitHub の 通常のリリース として公開します。失敗したビルドは公開しません。Google Play へのアップロードは行いません。
+リリース専用workflowは二つのジョブで実行します。
+
+1. `build`: 署名Secretを持たず、ロックとSHA-256を検証してUIテスト・release lint・未署名APK/AABの生成を行います。成果物・mapping・リリースノート・チェックサムを1日保持のartifactに渡します。
+2. `release`: 別のrunnerでartifactを取得し、リポジトリをcheckoutせず、Gradleやテストも実行しません。署名ステップだけが上記2項目を受け取り、検証済みの公式ツールで署名します。公開証明書が既存のアプリと一致することを確認し、鍵ファイルを削除してから公開します。
+
+APK・AAB・R8 mapping・SHA256SUMSを通常リリースとして公開します。検証・ビルド・署名が失敗した場合は公開しません。Google Playへのアップロードは行いません。署名鍵を変更する際は、Secretだけでなくworkflowの公開証明書SHA-256も意図的に更新する必要があります。既存の鍵を再利用する今回の変更ではSecretの再登録は不要です。
 
 自動の GITHUB_TOKEN を使うため、リリース用 PAT は不要です。リポジトリで GitHub Actions を有効にしておいてください。
 
-## ローカルの署名付きビルド
+## ローカルでの確認
 
-```bash
-signing_dir="$HOME/.local/share/podcast-android/signing"
-export ANDROID_KEYSTORE_PATH="$signing_dir/release.jks"
-export ANDROID_KEYSTORE_PASSWORD="$(cat "$signing_dir/ANDROID_KEYSTORE_PASSWORD")"
-./gradlew lintRelease assembleRelease bundleRelease
-"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
-jarsigner -verify app/build/outputs/bundle/release/app-release.aab
-unset ANDROID_KEYSTORE_PATH ANDROID_KEYSTORE_PASSWORD
+署名情報を環境変数に入れず、未署名で検証します。
+
+```sh
+./gradlew --dependency-verification=strict testDebugUnitTest lintDebug assembleDebug
+./gradlew --dependency-verification=strict lintRelease assembleRelease bundleRelease -PunsignedRelease=true
 ```
 
-署名情報を設定せずに release のパッケージを生成するとエラーになります。Debug APK は SDK 標準の開発用署名を使います。
+APKは `app/build/outputs/apk/release/app-release-unsigned.apk`、AABは `app/build/outputs/bundle/release/app-release.aab` に生成されます。未署名の配布物をそのまま公開しないでください。手元で署名する必要がある場合も、Gradleが終了した後の別プロセスで公式の `apksigner` / `jarsigner` を使います。署名コマンドはworkflowの `Sign and verify release artifacts` ステップを参照してください。
+
+署名用の環境変数をGradleへ渡すとエラーになります。`-PunsignedRelease=true` を省いたrelease生成もエラーです。Debug APKはSDK標準の開発用署名を使います。
+
+依存の更新・初期ハッシュの扱いは [依存管理と検証](dependencies.md) を参照してください。

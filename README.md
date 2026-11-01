@@ -15,4 +15,4 @@ Galena（方鉛鉱）は鉱石ラジオの検波器に使われた鉱石で、Ca
 
 アカウント・レコメンド・クラウド同期はありません。RSS 非公開の独占配信は非対応です。
 
-[操作と保存データ](docs/behavior-reference.md) · [開発・テスト](docs/testing.md) · [コードの構成](docs/architecture.md) · [署名とリリース](docs/releasing.md)
+[操作と保存データ](docs/behavior-reference.md) · [開発・テスト](docs/testing.md) · [コードの構成](docs/architecture.md) · [署名とリリース](docs/releasing.md) · [依存管理](docs/dependencies.md)

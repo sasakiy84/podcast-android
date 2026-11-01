@@ -14,6 +14,8 @@ source /workspace/.android-dev/env.sh
 ./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
+依存はロックとSHA-256で検証する。RobolectricのSDKも検証済みJARをofflineで参照する。依存を変更する場合は [依存管理と検証](dependencies.md) を参照する。
+
 結果は `app/build/test-results/testDebugUnitTest` のJUnit XML、`app/build/reports/tests/testDebugUnitTest` とlintのHTML、`app/build/outputs/apk/debug/app-debug.apk` に出力される。
 
 対象を絞った確認には、例えば `./gradlew testDebugUnitTest --tests '*PlaybackCommandsTest'` を使う。最終確認は基本コマンドで全体を実行する。

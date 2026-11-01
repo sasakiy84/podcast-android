@@ -32,8 +32,8 @@ import hashlib
 import zipfile
 base = Path('/workspace/.android-dev')
 archive = base / 'downloads/cmdline-tools.zip'
-if hashlib.sha1(archive.read_bytes()).hexdigest() != 'e025545c62a8e64c7559119566a569fb1dec5f60':
-    raise SystemExit('SDK archive checksum mismatch against Google repository metadata')
+if hashlib.sha256(archive.read_bytes()).hexdigest() != '0877a1d048fe4a24efe2eff536ca4223f7adeb58648bb81909d33c446918cfa8':
+    raise SystemExit('SDK archive checksum mismatch')
 with zipfile.ZipFile(archive) as bundle:
     bundle.extractall(base / 'sdk/cmdline-tools')
 (base / 'sdk/cmdline-tools/cmdline-tools').rename(base / 'sdk/cmdline-tools/latest')

@@ -7,9 +7,6 @@ import android.content.ClipboardManager
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -53,7 +50,7 @@ internal fun PodcastSourceSheet(podcast: Podcast, dismiss: () -> Unit): Unit {
                     style = MaterialTheme.typography.titleMedium,
                 )
                 IconButton(onClick = close) {
-                    Icon(Icons.Default.Close, "購読元を閉じる", Modifier.size(20.dp))
+                    Icon(AppIcons.Close, "購読元を閉じる", Modifier.size(20.dp))
                 }
             }
             SelectionContainer {
@@ -83,7 +80,7 @@ internal fun PodcastSourceSheet(podcast: Podcast, dismiss: () -> Unit): Unit {
                     )
                 }
             ) {
-                Icon(Icons.Default.Share, null)
+                Icon(AppIcons.Share, null)
                 Spacer(Modifier.width(8.dp))
                 Text("番組を共有")
             }

@@ -6,9 +6,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,18 +37,18 @@ internal fun EpisodeSwipeActions(episode: Episode, state: PodcastUiState, action
     Box(Modifier.fillMaxWidth().semantics { contentDescription = "エピソード操作: ${episode.title}" }) {
         if (animated > 0f) Row(Modifier.matchParentSize(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { close(); action(PodcastAction.QuickQueue(episode.id)) }, modifier = Modifier.width(72.dp).fillMaxHeight().semantics { contentDescription = "キューに追加: ${episode.title}" }) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.AutoMirrored.Filled.QueueMusic, null); Text("キュー", fontSize = 11.sp) }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(AppIcons.QueueMusic, null); Text("キュー", fontSize = 11.sp) }
             }
         }
         if (animated < 0f) Row(Modifier.matchParentSize(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
             val played = state.library.progress[episode.id]?.completed == true
-            SwipeAction(if (remove != null) "外す" else if (played) "未再生" else "再生済み", Icons.Default.Check) {
+            SwipeAction(if (remove != null) "外す" else if (played) "未再生" else "再生済み", AppIcons.Check) {
                 close(); if (remove != null) remove() else action(PodcastAction.MarkPlayed(episode, !played))
             }
             val favorite = episode.id in state.library.favorites
-            SwipeAction("お気に入り", if (favorite) Icons.Default.Star else Icons.Default.StarBorder) { close(); action(PodcastAction.Favorite(episode.id, !favorite)) }
+            SwipeAction("お気に入り", if (favorite) AppIcons.Star else AppIcons.StarBorder) { close(); action(PodcastAction.Favorite(episode.id, !favorite)) }
             val download = state.library.downloads[episode.id]
-            SwipeAction(if (download == null || download.status == DownloadStatus.Failed) "保存" else "削除", Icons.Default.Download) {
+            SwipeAction(if (download == null || download.status == DownloadStatus.Failed) "保存" else "削除", AppIcons.Download) {
                 close(); action(if (download == null || download.status == DownloadStatus.Failed) PodcastAction.Download(episode) else PodcastAction.RemoveDownload(episode))
             }
         }

@@ -10,10 +10,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -77,12 +73,12 @@ internal fun MiniPlayer(
                             onClick = { action(PodcastAction.Skip(30_000)) },
                             enabled = state.playback.connected,
                         ) {
-                            Icon(Icons.Default.Forward30, "30秒スキップ")
+                            Icon(AppIcons.Forward30, "30秒スキップ")
                         }
                     }
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         IconButton(onClick = queues) {
-                            Icon(Icons.AutoMirrored.Filled.QueueMusic, "キューを開く")
+                            Icon(AppIcons.QueueMusic, "キューを開く")
                         }
                     }
                 }
@@ -95,8 +91,8 @@ internal fun MiniPlayer(
                         },
                 ) {
                     Icon(
-                        if (state.playback.playing) Icons.Default.Pause
-                        else Icons.Default.PlayArrow,
+                        if (state.playback.playing) AppIcons.Pause
+                        else AppIcons.PlayArrow,
                         null,
                         Modifier.size(30.dp),
                     )
@@ -147,7 +143,7 @@ internal fun PlayerPage(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = close) { Icon(Icons.Default.KeyboardArrowDown, "プレーヤーを閉じる") }
+            IconButton(onClick = close) { Icon(AppIcons.KeyboardArrowDown, "プレーヤーを閉じる") }
             LazyRow(Modifier.weight(1f)) {
                 item {
                     TextButton(onClick = { scope.launch { pager.animateScrollToPage(0) } }) {
@@ -183,7 +179,7 @@ internal fun PlayerPage(
                         }
                     }
             }
-            IconButton(onClick = queues) { Icon(Icons.AutoMirrored.Filled.QueueMusic, "キューを開く") }
+            IconButton(onClick = queues) { Icon(AppIcons.QueueMusic, "キューを開く") }
         }
         HorizontalPager(
             state = pager,
@@ -311,7 +307,7 @@ internal fun PlayerPage(
                                         onClick = { action(PodcastAction.PreviousEpisode) },
                                         enabled = playback.hasPrevious,
                                     ) {
-                                        Icon(Icons.Default.SkipPrevious, "前のエピソード")
+                                        Icon(AppIcons.SkipPrevious, "前のエピソード")
                                     }
                                     IconButton(
                                         onClick = { action(PodcastAction.Skip(-15_000)) },
@@ -322,7 +318,7 @@ internal fun PlayerPage(
                                             },
                                     ) {
                                         Box(contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Default.Replay, null, Modifier.size(40.dp))
+                                            Icon(AppIcons.Replay, null, Modifier.size(40.dp))
                                             Text(
                                                 "15",
                                                 Modifier.padding(top = 6.dp),
@@ -352,8 +348,8 @@ internal fun PlayerPage(
                                             )
                                         else
                                             Icon(
-                                                if (playback.playing) Icons.Default.Pause
-                                                else Icons.Default.PlayArrow,
+                                                if (playback.playing) AppIcons.Pause
+                                                else AppIcons.PlayArrow,
                                                 null,
                                                 Modifier.size(40.dp),
                                             )
@@ -363,13 +359,13 @@ internal fun PlayerPage(
                                         enabled = playback.connected,
                                         modifier = Modifier.size(48.dp),
                                     ) {
-                                        Icon(Icons.Default.Forward30, "30秒進む", Modifier.size(30.dp))
+                                        Icon(AppIcons.Forward30, "30秒進む", Modifier.size(30.dp))
                                     }
                                     IconButton(
                                         onClick = { action(PodcastAction.NextEpisode) },
                                         enabled = playback.hasNext,
                                     ) {
-                                        Icon(Icons.Default.SkipNext, "次のエピソード")
+                                        Icon(AppIcons.SkipNext, "次のエピソード")
                                     }
                                 }
                             }
@@ -408,15 +404,15 @@ internal fun PlayerPage(
                                     it.id == state.defaultQueueId && episode.id in it.episodeIds
                                 }
                             )
-                                Icons.Default.Check
-                            else Icons.AutoMirrored.Filled.PlaylistAdd,
+                                AppIcons.Check
+                            else AppIcons.PlaylistAdd,
                             "デフォルトキューに追加",
                         )
                     }
                 }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     IconButton(onClick = { more = true }) {
-                        Icon(Icons.Default.MoreHoriz, "その他の操作")
+                        Icon(AppIcons.MoreHoriz, "その他の操作")
                     }
                     DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
                         DropdownMenuItem(

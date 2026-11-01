@@ -2,8 +2,6 @@ package io.github.sasakiy84.podcast
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -21,7 +19,7 @@ internal fun RewindIcon(description: String): Unit {
         Modifier.semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(Icons.Default.Replay, null, Modifier.size(26.dp))
+        Icon(AppIcons.Replay, null, Modifier.size(26.dp))
         Text(
             "15",
             Modifier.padding(top = 4.dp),
@@ -63,13 +61,13 @@ internal fun CompactDownloadButton(
                     modifier = Modifier.size(24.dp),
                     strokeWidth = 2.dp,
                 )
-                Icon(Icons.Default.Close, null, Modifier.size(14.dp))
+                Icon(AppIcons.Close, null, Modifier.size(14.dp))
             }
         else
             Icon(
-                if (complete) Icons.Default.DownloadDone
-                else if (download?.status == DownloadStatus.Failed) Icons.Default.ErrorOutline
-                else Icons.Default.ArrowDownward,
+                if (complete) AppIcons.DownloadDone
+                else if (download?.status == DownloadStatus.Failed) AppIcons.ErrorOutline
+                else AppIcons.ArrowDownward,
                 null,
                 Modifier.size(22.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -167,7 +165,7 @@ internal fun EpisodeCopyButton(episode: Episode, state: PodcastUiState): Unit {
     var expanded by
         androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     Box {
-        IconButton(onClick = { expanded = true }) { Icon(Icons.Default.ContentCopy, "コピーする項目") }
+        IconButton(onClick = { expanded = true }) { Icon(AppIcons.ContentCopy, "コピーする項目") }
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             EpisodeCopyItems(
                 episode,
@@ -204,7 +202,7 @@ internal fun NowPlayingChapter(
             },
             enabled = index > 0 && state.playback.connected,
         ) {
-            Icon(Icons.Default.ChevronLeft, "前のチャプター")
+            Icon(AppIcons.ChevronLeft, "前のチャプター")
         }
         Column(Modifier.weight(1f)) {
             Text(chapter.title, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
@@ -218,7 +216,7 @@ internal fun NowPlayingChapter(
             onClick = { action(PodcastAction.PlayChapter(episode, chapters[index + 1].startMs)) },
             enabled = index < chapters.lastIndex && state.playback.connected,
         ) {
-            Icon(Icons.Default.ChevronRight, "次のチャプター")
+            Icon(AppIcons.ChevronRight, "次のチャプター")
         }
     }
 }

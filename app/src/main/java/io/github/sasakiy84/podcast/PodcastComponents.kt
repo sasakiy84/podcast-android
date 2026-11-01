@@ -5,8 +5,6 @@ package io.github.sasakiy84.podcast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,11 +20,11 @@ import coil.compose.AsyncImage
 @Composable
 internal fun DownloadButton(episode: Episode, download: EpisodeDownload?, action: (PodcastAction) -> Unit): Unit {
     when (download?.status) {
-        DownloadStatus.Complete -> TextButton(onClick = { action(PodcastAction.RemoveDownload(episode)) }) { Icon(Icons.Default.DownloadDone, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("ダウンロードを削除") }
+        DownloadStatus.Complete -> TextButton(onClick = { action(PodcastAction.RemoveDownload(episode)) }) { Icon(AppIcons.DownloadDone, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("ダウンロードを削除") }
         DownloadStatus.Running, DownloadStatus.Waiting -> TextButton(onClick = { action(PodcastAction.RemoveDownload(episode)) }) {
-            Icon(Icons.Default.Close, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(if (download.status == DownloadStatus.Waiting) "待機中・取消" else "${download.percent}%・取消")
+            Icon(AppIcons.Close, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(if (download.status == DownloadStatus.Waiting) "待機中・取消" else "${download.percent}%・取消")
         }
-        else -> TextButton(onClick = { action(PodcastAction.Download(episode)) }) { Icon(Icons.Default.Download, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(if (download?.status == DownloadStatus.Failed) "再試行" else "ダウンロード") }
+        else -> TextButton(onClick = { action(PodcastAction.Download(episode)) }) { Icon(AppIcons.Download, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(if (download?.status == DownloadStatus.Failed) "再試行" else "ダウンロード") }
     }
 }
 
@@ -41,7 +39,7 @@ internal fun Cover(url: String, title: String, modifier: Modifier): Unit {
 @Composable
 internal fun EmptyState(title: String, description: String, button: String? = null, onClick: () -> Unit = {}): Unit {
     Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(Icons.Default.Headphones, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+        Icon(AppIcons.Headphones, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(20.dp))
         Text(title, style = MaterialTheme.typography.titleLarge)
         if (description.isNotBlank()) {
@@ -77,6 +75,6 @@ internal fun ConfirmationSheet(title: String, description: String, confirm: Stri
 internal fun FavoriteButton(id: String, state: PodcastUiState, action: (PodcastAction) -> Unit): Unit {
     val favorite = id in state.library.favorites
     IconToggleButton(checked = favorite, onCheckedChange = { action(PodcastAction.Favorite(id, it)) }) {
-        Icon(if (favorite) Icons.Default.Star else Icons.Default.StarBorder, if (favorite) "お気に入りを解除" else "お気に入りに追加", Modifier.size(22.dp))
+        Icon(if (favorite) AppIcons.Star else AppIcons.StarBorder, if (favorite) "お気に入りを解除" else "お気に入りに追加", Modifier.size(22.dp))
     }
 }

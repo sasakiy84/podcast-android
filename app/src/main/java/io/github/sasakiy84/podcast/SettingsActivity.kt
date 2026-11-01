@@ -13,8 +13,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -73,7 +71,7 @@ internal fun SettingsPage(
                     title = { Text("設定") },
                     navigationIcon = {
                         IconButton(onClick = back) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "戻る")
+                            Icon(AppIcons.ArrowBack, "戻る")
                         }
                     },
                 )

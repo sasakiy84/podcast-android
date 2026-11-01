@@ -4,10 +4,6 @@ package io.github.sasakiy84.podcast
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -91,10 +87,10 @@ fun PodcastApp(
                             icon = {
                                 Icon(
                                     when (item) {
-                                        HomeTab.Library -> Icons.Default.GridView
-                                        HomeTab.Episodes -> Icons.Default.Headphones
-                                        HomeTab.Queues -> Icons.AutoMirrored.Filled.QueueMusic
-                                        HomeTab.Search -> Icons.Default.Search
+                                        HomeTab.Library -> AppIcons.GridView
+                                        HomeTab.Episodes -> AppIcons.Headphones
+                                        HomeTab.Queues -> AppIcons.QueueMusic
+                                        HomeTab.Search -> AppIcons.Search
                                     },
                                     null,
                                 )
@@ -145,13 +141,13 @@ fun PodcastApp(
                                 navigationIcon = {
                                     if (selected != null)
                                         IconButton(onClick = { selectedFeed = null }) {
-                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "一覧に戻る")
+                                            Icon(AppIcons.ArrowBack, "一覧に戻る")
                                         }
                                 },
                                 actions = {
                                     if (selected != null)
                                         IconButton(onClick = { unsubscribe = selected }) {
-                                            Icon(Icons.Default.MoreVert, "購読を解除")
+                                            Icon(AppIcons.MoreVert, "購読を解除")
                                         }
                                     if (tab != HomeTab.Search) {
                                         IconButton(
@@ -176,7 +172,7 @@ fun PodcastApp(
                                                                 MaterialTheme.typography.labelSmall,
                                                         )
                                                 }
-                                            else Icon(Icons.Default.Refresh, "番組を更新")
+                                            else Icon(AppIcons.Refresh, "番組を更新")
                                         }
                                     }
                                     if (tab == HomeTab.Library && selected == null)
@@ -190,7 +186,7 @@ fun PodcastApp(
                                                         Modifier.size(22.dp),
                                                         strokeWidth = 2.dp,
                                                     )
-                                                else Icon(Icons.Default.MoreVert, "番組一覧のメニュー")
+                                                else Icon(AppIcons.MoreVert, "番組一覧のメニュー")
                                             }
                                             DropdownMenu(
                                                 expanded = libraryMenu,
@@ -207,7 +203,7 @@ fun PodcastApp(
                                                         },
                                                         trailingIcon = {
                                                             if (state.podcastSort == sort)
-                                                                Icon(Icons.Default.Check, null)
+                                                                Icon(AppIcons.Check, null)
                                                         },
                                                     )
                                                 }

@@ -16,8 +16,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -132,7 +130,7 @@ internal fun PodcastDetails(
                 }
                 TextButton(onClick = { sourceMenu = true }) { Text("購読元") }
                 IconButton(onClick = { settingsMenu = true }) {
-                    Icon(Icons.Default.Settings, "番組の設定")
+                    Icon(AppIcons.Settings, "番組の設定")
                 }
             }
         }
@@ -283,7 +281,7 @@ internal fun EpisodesPage(
                             query = ""
                         }
                     ) {
-                        Icon(Icons.Default.Close, "検索を閉じる")
+                        Icon(AppIcons.Close, "検索を閉じる")
                     }
                 },
             )
@@ -308,7 +306,7 @@ internal fun EpisodesPage(
                         focusSearch = true
                     }
                 ) {
-                    Icon(Icons.Default.Search, "エピソードを検索")
+                    Icon(AppIcons.Search, "エピソードを検索")
                 }
         }
         if (query.isNotBlank() && (localSearch.loading || !queryReady))
@@ -480,7 +478,7 @@ internal fun EpisodeCard(
                             )
                         if (episode.id in state.library.favorites)
                             Icon(
-                                Icons.Default.Star,
+                                AppIcons.Star,
                                 "お気に入り",
                                 Modifier.size(14.dp),
                                 tint = MaterialTheme.colorScheme.primary,
@@ -505,9 +503,9 @@ internal fun EpisodeCard(
                         state.library.downloads[episode.id]?.let { download ->
                             Icon(
                                 when (download.status) {
-                                    DownloadStatus.Complete -> Icons.Default.DownloadDone
-                                    DownloadStatus.Failed -> Icons.Default.ErrorOutline
-                                    else -> Icons.Default.Downloading
+                                    DownloadStatus.Complete -> AppIcons.DownloadDone
+                                    DownloadStatus.Failed -> AppIcons.ErrorOutline
+                                    else -> AppIcons.Downloading
                                 },
                                 when (download.status) {
                                     DownloadStatus.Complete -> "ダウンロード済み"
@@ -531,8 +529,8 @@ internal fun EpisodeCard(
                             modifier = Modifier.size(40.dp),
                         ) {
                             Icon(
-                                if (playing) Icons.Default.PauseCircleOutline
-                                else Icons.Default.PlayCircleOutline,
+                                if (playing) AppIcons.PauseCircleOutline
+                                else AppIcons.PlayCircleOutline,
                                 if (playing) "一時停止: ${episode.title}" else "再生: ${episode.title}",
                                 Modifier.size(30.dp),
                                 tint = MaterialTheme.colorScheme.primary,
@@ -665,7 +663,7 @@ internal fun SearchPage(state: PodcastUiState, action: (PodcastAction) -> Unit):
             ) {
                 if (state.searching)
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                else Icon(Icons.Default.Search, null)
+                else Icon(AppIcons.Search, null)
                 Spacer(Modifier.width(8.dp))
                 Text(if (byUrl) "番組を確認" else "検索する")
             }

@@ -8,7 +8,7 @@
 | 再生パネルと戻る操作 | `PlayerHost`（`PlayerSheet.kt`）、`PlayerPage` |
 | 設定と保存容量・更新結果 | `SettingsActivity`、`ManagementPage` |
 | 共有・操作の取り消し通知 | `Sharing`、`AppSnackbar` |
-| 色とアプリアイコン | `PodcastTheme`、[ロゴと配色](branding/README.md) |
+| 色とアプリアイコン | `PodcastTheme`、`AppIcons`、[ロゴと配色](branding/README.md) |
 | 画面と処理の境界 | `PodcastUiState` / `PodcastAction`、`PodcastsViewModel` |
 | 再生開始・再開・前後移動・チャプター・音声削除後の切り替え | `PlaybackCommands` |
 | 再生セッションと履歴の保存 | `PlaybackService` |
@@ -50,3 +50,5 @@ Composable は `PodcastAction` を渡し、通信や保存はViewModel経由で�
 条件付き取得・全文検索・取り消し・ドラッグ・共有・管理画面の詳細は [library-operations.md](library-operations.md)。検索はDBの全文へのSQL問い合わせ、取り消しは進捗とキューを一緒に更新するトランザクションとして扱う。
 
 変更後の検証と画面撮影は [開発・テスト](testing.md) を参照する。
+
+依存の版・SHA-256・テストSDKの取得と署名鍵の分離は [依存管理と検証](dependencies.md) を参照する。

@@ -1,0 +1,17 @@
+Material Icons vector paths
+Copyright 2025 The Android Open Source Project
+Licensed under the Apache License, Version 2.0; see LICENSE.txt.
+
+37 glyphs converted from AndroidX Compose Material Icons 1.7.8 (core and extended).
+Geometry, path opacity, fill rules and automatic RTL mirroring are preserved.
+The Kotlin implementation and the rest of the icon catalog are not bundled.
+
+Official source repository: https://android.googlesource.com/platform/frameworks/support/
+Official source artifacts (https://dl.google.com/dl/android/maven2/):
+androidx/compose/material/material-icons-core-android/1.7.8/material-icons-core-android-1.7.8-sources.jar
+SHA-256: 14db888d2f698178799a4c18a58bb134b3e98063c6748c443b339044e0145432
+androidx/compose/material/material-icons-extended-android/1.7.8/material-icons-extended-android-1.7.8-sources.jar
+SHA-256: 77b7e782a519a3e074fc91e09d59334ac1b815edd87d2e89c0c9ca7c95678e93
+
+Local resources: app/src/main/res/drawable/ic_ui_*.xml
+Local Compose accessors: AppIcons.kt
