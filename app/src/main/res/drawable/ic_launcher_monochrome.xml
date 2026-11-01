@@ -1,0 +1,12 @@
+<!-- Generated from docs/branding/logo.svg; run scripts/generate-brand-assets.py. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <group android:scaleX="0.075" android:scaleY="0.075"
+        android:translateX="16.5" android:translateY="16.5">
+        <path android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd" android:pathData="M150 470 L320 245 L510 170 Q520 166 532 170 L655 275 C606 354 585 460 621 540 L462 612 L384 710 L384 870 L303 870 L303 710 Z M350 342 L435 470 L345 602 L258 470 Z" />
+        <path android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd" android:pathData="M714 278 C750 271 826 300 847 322 C875 351 879 413 858 456 C841 494 784 524 725 535 C686 542 660 524 654 491 C640 420 663 320 695 288 Q704 280 714 278 Z" />
+    </group>
+</vector>

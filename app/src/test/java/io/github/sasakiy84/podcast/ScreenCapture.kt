@@ -122,7 +122,11 @@ class ScreenCapture {
         )
     private val ui = mutableStateOf(base)
 
-    @Test fun captureLightScreens(): Unit = captureAll("light")
+    @Test
+    fun captureLightScreens(): Unit {
+        captureBrandIcons(compose.activity, File(directory.parentFile, "branding.png"))
+        captureAll("light")
+    }
 
     @Test
     @Config(qualifiers = "ja-w360dp-h800dp-night")

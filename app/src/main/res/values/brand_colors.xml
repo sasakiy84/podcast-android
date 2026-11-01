@@ -1,0 +1,6 @@
+<!-- Generated from docs/branding/logo.svg; run scripts/generate-brand-assets.py. -->
+<resources>
+    <color name="galena_background">#FAEBDD</color>
+    <color name="galena_copper">#A74E2D</color>
+    <color name="galena_facet">#D99F78</color>
+</resources>
