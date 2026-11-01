@@ -36,6 +36,7 @@ import androidx.core.view.WindowCompat
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.style.TextAlign
@@ -327,16 +328,29 @@ private fun MiniPlayer(episode: Episode, state: PodcastUiState, action: (Podcast
     val podcast = state.library.podcasts.firstOrNull { it.feedUrl == episode.feedUrl }
     Surface(Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(14.dp)), color = MaterialTheme.colorScheme.surfaceContainer) {
         Column {
-            Row(Modifier.fillMaxWidth().padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.weight(1f).clickable(onClick = expand).semantics { contentDescription = "プレーヤーを開く" }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Cover(episode.artwork.ifBlank { podcast?.artwork.orEmpty() }, episode.title, Modifier.size(46.dp))
-                    Text(episode.title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(48.dp).clickable(onClick = expand).semantics { contentDescription = "プレーヤーを開く"; stateDescription = episode.title }, contentAlignment = Alignment.Center) {
+                            Cover(episode.artwork.ifBlank { podcast?.artwork.orEmpty() }, episode.title, Modifier.size(46.dp))
+                        }
+                    }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        IconButton(onClick = { action(PodcastAction.Skip(-15_000)) }, enabled = state.playback.connected) { Icon(Icons.Default.Replay, "15秒戻る（ミニプレーヤー）") }
+                    }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        Spacer(Modifier.size(48.dp))
+                    }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        IconButton(onClick = { action(PodcastAction.Skip(30_000)) }, enabled = state.playback.connected) { Icon(Icons.Default.Forward30, "30秒スキップ") }
+                    }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        IconButton(onClick = queues) { Icon(Icons.AutoMirrored.Filled.QueueMusic, "キューを開く") }
+                    }
                 }
-                FilledIconButton(onClick = { action(PodcastAction.TogglePlayback) }, enabled = state.playback.connected, modifier = Modifier.semantics { contentDescription = if (state.playback.playing) "一時停止" else "再生を再開" }) {
-                    Icon(if (state.playback.playing) Icons.Default.Pause else Icons.Default.PlayArrow, null)
+                FilledIconButton(onClick = { action(PodcastAction.TogglePlayback) }, enabled = state.playback.connected, modifier = Modifier.align(Alignment.Center).size(48.dp).semantics { contentDescription = if (state.playback.playing) "一時停止" else "再生を再開" }) {
+                    Icon(if (state.playback.playing) Icons.Default.Pause else Icons.Default.PlayArrow, null, Modifier.size(30.dp))
                 }
-                IconButton(onClick = { action(PodcastAction.Skip(30_000)) }, enabled = state.playback.connected) { Icon(Icons.Default.Forward30, "30秒スキップ") }
-                IconButton(onClick = queues) { Icon(Icons.AutoMirrored.Filled.QueueMusic, "キューを開く") }
             }
             if (state.playback.durationMs > 0) LinearProgressIndicator(progress = { (state.playback.positionMs.toFloat() / state.playback.durationMs).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(2.dp))
         }
@@ -404,16 +418,17 @@ private fun PlayerPage(episode: Episode, state: PodcastUiState, action: (Podcast
             }
         }
         Surface(Modifier.padding(16.dp).fillMaxWidth(), shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-            Row(Modifier.padding(6.dp), horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically) {
-                Box {
+            Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     TextButton(onClick = { speedMenu = true }, enabled = playback.connected, modifier = Modifier.semantics { contentDescription = "再生速度 ${playback.speed}×" }) { Text("${playback.speed}×", fontWeight = FontWeight.Bold) }
                     DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
                         listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f).forEach { speed -> DropdownMenuItem(text = { Text("${speed}×") }, onClick = { action(PodcastAction.Speed(speed)); speedMenu = false }, trailingIcon = { if (speed == playback.speed) Icon(Icons.Default.Check, null) }) }
                     }
                 }
-                IconButton(onClick = membership) { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, "キューに追加・編集") }
-                DownloadButton(episode, state.library.downloads[episode.id], action, compact = true)
-                Box {
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    IconButton(onClick = membership) { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, "キューに追加・編集") }
+                }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     IconButton(onClick = { more = true }) { Icon(Icons.Default.MoreHoriz, "その他の操作") }
                     DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
                         val completed = state.library.progress[episode.id]?.completed == true
@@ -426,15 +441,7 @@ private fun PlayerPage(episode: Episode, state: PodcastUiState, action: (Podcast
 }
 
 @Composable
-private fun DownloadButton(episode: Episode, download: EpisodeDownload?, action: (PodcastAction) -> Unit, compact: Boolean = false): Unit {
-    if (compact) {
-        val saved = download?.status == DownloadStatus.Complete
-        val pending = download?.status == DownloadStatus.Running || download?.status == DownloadStatus.Waiting
-        IconButton(onClick = { action(if (saved || pending) PodcastAction.RemoveDownload(episode) else PodcastAction.Download(episode)) }) {
-            Icon(if (saved) Icons.Default.DownloadDone else if (pending) Icons.Default.Close else Icons.Default.Download, if (saved) "ダウンロードを削除" else if (pending) "ダウンロードを中止" else "ダウンロード")
-        }
-        return
-    }
+private fun DownloadButton(episode: Episode, download: EpisodeDownload?, action: (PodcastAction) -> Unit): Unit {
     when (download?.status) {
         DownloadStatus.Complete -> TextButton(onClick = { action(PodcastAction.RemoveDownload(episode)) }) { Icon(Icons.Default.DownloadDone, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("ダウンロードを削除") }
         DownloadStatus.Running, DownloadStatus.Waiting -> TextButton(onClick = { action(PodcastAction.RemoveDownload(episode)) }) {

@@ -134,7 +134,7 @@ class PodcastAppTest {
         }
         compose.setContent { PodcastApp(state.copy(library = library.copy(podcasts = shows))) }
         compose.onNodeWithContentDescription(second.title).assertIsDisplayed()
-        compose.onNodeWithText(episode.title).assertIsDisplayed()
+        compose.onNodeWithText(episode.title).assertDoesNotExist()
         screenshot("library")
     }
 
@@ -144,7 +144,7 @@ class PodcastAppTest {
         org.robolectric.RuntimeEnvironment.setFontScale(1.5f)
         compose.setContent { PodcastApp(state) }
         compose.onNodeWithContentDescription("タブ: 検索").assertIsDisplayed()
-        compose.onNodeWithText(episode.title).assertIsDisplayed()
+        compose.onNodeWithText(episode.title).assertDoesNotExist()
         screenshot("library-large-text")
     }
 
@@ -208,14 +208,28 @@ class PodcastAppTest {
     }
 
     @Test
+    fun miniPlayerCentersPlaybackAndKeepsItsTitleOnlyForAccessibility(): Unit {
+        val actions = mutableListOf<PodcastAction>()
+        compose.setContent { PodcastApp(state, actions::add) }
+        compose.onNodeWithText(episode.title).assertDoesNotExist()
+        val left = compose.onNodeWithContentDescription("プレーヤーを開く").fetchSemanticsNode().boundsInRoot.center.x
+        val right = compose.onNodeWithContentDescription("キューを開く").fetchSemanticsNode().boundsInRoot.center.x
+        val play = compose.onNodeWithContentDescription("一時停止").fetchSemanticsNode().boundsInRoot.center.x
+        assertEquals((left + right) / 2f, play, 0.5f)
+        compose.onNodeWithContentDescription("15秒戻る（ミニプレーヤー）").performClick()
+        assertEquals(PodcastAction.Skip(-15_000), actions.last())
+        compose.onNodeWithContentDescription("30秒スキップ").performClick()
+        assertEquals(PodcastAction.Skip(30_000), actions.last())
+    }
+
+    @Test
     fun fullPlayerDetailsAndQueueActionsRemainAccessible(): Unit {
         val actions = mutableListOf<PodcastAction>()
         compose.setContent { PodcastApp(state, actions::add) }
         compose.onNodeWithContentDescription("プレーヤーを開く").performClick()
         compose.onNodeWithText("詳細").performClick()
         compose.onNodeWithText(episode.description).assertIsDisplayed()
-        compose.onNodeWithContentDescription("ダウンロード").performClick()
-        assertEquals(PodcastAction.Download(episode), actions.last())
+        compose.onNodeWithContentDescription("ダウンロード").assertDoesNotExist()
         compose.onNodeWithContentDescription("キューに追加・編集").performClick()
         compose.onNodeWithText("新しいキュー名").assertIsDisplayed()
     }
