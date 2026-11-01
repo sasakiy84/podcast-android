@@ -43,6 +43,15 @@ Robolectric 4.17で使っていたAndroid 16の `android-all-instrumented:16-rob
 
 初回取得後は `--offline` も指定できる。検証エラーを回避するためにstrictモードを無効化したり、メタデータを無条件で再生成したりしない。
 
+初期導入や依存更新時は、空の依存キャッシュで解決・テスト・ビルドも確認する。既存キャッシュでは親POMやBOMの取得が省略され、検証メタデータの不足を見逃すことがある。コンパイラやlintの依存も確認するため、classpathの解決だけで終わらせない。
+
+```sh
+verification_gradle_home="$(mktemp -d)"
+GRADLE_USER_HOME="$verification_gradle_home" ./gradlew --dependency-verification=strict resolveLockedDependencies testDebugUnitTest lintDebug assembleDebug lintRelease assembleRelease bundleRelease -PunsignedRelease=true
+```
+
+プロキシやCAなどの環境固有のGradle設定が必要な場合は、新しい `GRADLE_USER_HOME` にも引き継ぐ。依存キャッシュはコピーしない。不足が見つかった場合は対象の取得元と公開チェックサムを確認して補完し、strictモードのまま再検証する。
+
 Material Iconsを追加・更新するときは必要なものだけを公式配布元から取り込み、同梱ライセンスと出典を更新する。新たなアイコン集全体への依存を追加しない。
 
 ## 署名鍵との境界
