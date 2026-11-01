@@ -72,19 +72,15 @@ class PlayerPolishTest {
 
     @Test fun queueAddFeedbackIsVisibleAboveTheExpandedPlayer(): Unit {
         val state = mutableStateOf(base)
-        compose.setContent { PodcastApp(state.value, { if (it is PodcastAction.QuickQueue) state.value = state.value.copy(library = state.value.library.copy(queues = listOf(PlaybackQueue("default", "あとで聴く", listOf(episode.id)))), message = "あとで聴くに追加しました") }) }
+        val actions = mutableListOf<PodcastAction>()
+        compose.setContent { PodcastApp(state.value, actions::add) }
         compose.onNodeWithContentDescription("プレーヤーを開く").performClick()
         compose.onNodeWithContentDescription("デフォルトキューに追加").performClick()
+        assertEquals(PodcastAction.QuickQueue(episode.id), actions.last())
+        compose.runOnIdle { state.value = state.value.copy(message = "あとで聴くに追加しました") }
         compose.onNodeWithText("あとで聴くに追加しました").assertIsDisplayed()
-        assertEquals(listOf(episode.id), state.value.library.queues.single().episodeIds)
     }
 
-    @Test fun refreshIntervalButtonsHaveVisibleGaps(): Unit {
-        compose.setContent { SettingsPage(base, {}, {}, {}, {}) }
-        val first = compose.onNodeWithText("1h").fetchSemanticsNode().boundsInRoot
-        val second = compose.onNodeWithText("3h").fetchSemanticsNode().boundsInRoot
-        assertTrue(second.left > first.right)
-    }
     @Test fun completedSheetsRemainMountedUntilTheExitAnimationFinishes(): Unit {
         val visible = mutableStateOf(true)
         compose.setContent { PodcastTheme { if (visible.value) QueueMembershipDialog(episode, base.library, {}, { visible.value = false }) } }

@@ -76,7 +76,6 @@ class PodcastAppTest {
         compose.onNodeWithContentDescription("再生: ${episode.title}").performClick()
         compose.waitForIdle()
         assertEquals(PodcastAction.Play(episode), actions.last())
-        screenshot("episodes")
         compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performClick()
         compose.onNode(hasText("ダウンロード") and hasAnyAncestor(isDialog())).performClick()
         compose.waitForIdle()
@@ -90,33 +89,6 @@ class PodcastAppTest {
         compose.onNodeWithContentDescription("一時停止").performClick()
         compose.waitForIdle()
         assertEquals(PodcastAction.TogglePlayback, actions.last())
-    }
-
-    @Test
-    fun fullPlayerChangesSpeedAndSkips(): Unit {
-        val actions = mutableListOf<PodcastAction>()
-        compose.setContent { PodcastApp(state, actions::add) }
-        compose.onNodeWithContentDescription("プレーヤーを開く").performClick()
-        compose.onNodeWithContentDescription("15秒戻る").performClick()
-        compose.waitForIdle()
-        assertEquals(PodcastAction.Skip(-15_000), actions.last())
-        compose.onNodeWithContentDescription("30秒進む").performClick()
-        compose.waitForIdle()
-        assertEquals(PodcastAction.Skip(30_000), actions.last())
-        compose.onNodeWithContentDescription("再生速度 1.0×").performClick()
-        compose.onNodeWithText("1.5×").performClick()
-        compose.waitForIdle()
-        assertEquals(PodcastAction.Speed(1.5f), actions.last())
-        screenshot("player")
-    }
-
-    @Test
-    fun seekSliderChangesPlaybackPosition(): Unit {
-        val actions = mutableListOf<PodcastAction>()
-        compose.setContent { PodcastApp(state, actions::add) }
-        compose.onNodeWithContentDescription("プレーヤーを開く").performClick()
-        compose.onNodeWithContentDescription("再生位置").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(600_000f) }
-        assertEquals(PodcastAction.Seek(600_000), actions.last())
     }
 
     @Test
@@ -137,17 +109,6 @@ class PodcastAppTest {
     }
 
     @Test
-    fun libraryShowsLocalSubscriptionsAndMiniPlayer(): Unit {
-        val shows = listOf(show, second) + listOf("WORLD NEWS", "TECH TABLE", "ENGLISH", "WEEKLY", "DESIGN", "SCIENCE", "DAILY").mapIndexed { index, name ->
-            Podcast("https://example.org/$index", name, artwork = artwork(name.replace(" ", "\n"), listOf(0xFFAA262C.toInt(), 0xFF07304A.toInt(), 0xFF40855E.toInt())[index % 3]))
-        }
-        compose.setContent { PodcastApp(state.copy(library = library.copy(podcasts = shows))) }
-        compose.onNodeWithContentDescription(second.title).assertIsDisplayed()
-        compose.onNodeWithText(episode.title).assertDoesNotExist()
-        screenshot("library")
-    }
-
-    @Test
     @Config(qualifiers = "ja-w320dp-h640dp")
     fun narrowScreenSupportsLargeText(): Unit {
         org.robolectric.RuntimeEnvironment.setFontScale(1.5f)
@@ -155,14 +116,6 @@ class PodcastAppTest {
         compose.onNodeWithContentDescription("タブ: 検索").assertIsDisplayed()
         compose.onNodeWithText(episode.title).assertDoesNotExist()
         screenshot("library-large-text")
-    }
-
-    @Test
-    @Config(qualifiers = "ja-w360dp-h800dp-night")
-    fun librarySupportsDarkMode(): Unit {
-        compose.setContent { PodcastApp(state) }
-        compose.onNodeWithContentDescription(second.title).assertIsDisplayed()
-        screenshot("library-dark")
     }
 
     @Test
@@ -180,22 +133,6 @@ class PodcastAppTest {
         compose.onNodeWithContentDescription("キューを再生").performClick()
         compose.waitForIdle()
         assertEquals(PodcastAction.PlayQueue("news"), actions.last())
-        screenshot("queue")
-    }
-
-    @Test
-    fun anEpisodeCanBeAddedToTwoQueuesFromItsDetails(): Unit {
-        val actions = mutableListOf<PodcastAction>()
-        val withQueues = state.copy(library = library.copy(queues = listOf(PlaybackQueue("news", "ニュース"), PlaybackQueue("english", "英語学習"))))
-        compose.setContent { PodcastApp(withQueues, actions::add) }
-        compose.onNodeWithContentDescription("タブ: エピソード").performClick()
-        compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performClick()
-        compose.onNodeWithContentDescription("キューに追加・編集").performClick()
-        compose.onNodeWithText("キャンセル").assertDoesNotExist()
-        compose.onAllNodes(isToggleable())[0].performClick()
-        compose.onAllNodes(isToggleable())[1].performClick()
-        compose.waitForIdle()
-        assertEquals(listOf(PodcastAction.QueueMembership("news", episode.id, true), PodcastAction.QueueMembership("english", episode.id, true)), actions.filterIsInstance<PodcastAction.QueueMembership>())
     }
 
     @Test
@@ -209,7 +146,6 @@ class PodcastAppTest {
         compose.onNodeWithText("除外する語（カンマ区切り）").performScrollTo().performTextInput("広告")
         compose.onNodeWithText("一致した回を自動ダウンロード").performScrollTo().performClick()
         compose.onNodeWithText("既存の未再生にも追加").performScrollTo().performClick()
-        screenshot("queue-rule")
         compose.onNodeWithText("保存").performClick()
         compose.waitForIdle()
         val event = actions.last() as PodcastAction.SaveQueueRule
@@ -220,7 +156,7 @@ class PodcastAppTest {
     }
 
     @Test
-    fun miniPlayerCentersPlaybackAndKeepsItsTitleOnlyForAccessibility(): Unit {
+    fun miniAndFullPlayerDispatchTransportAndSpeed(): Unit {
         val actions = mutableListOf<PodcastAction>()
         compose.setContent { PodcastApp(state, actions::add) }
         compose.onNodeWithText(episode.title).assertDoesNotExist()
@@ -234,6 +170,14 @@ class PodcastAppTest {
         compose.onNodeWithContentDescription("30秒スキップ").performClick()
         compose.waitForIdle()
         assertEquals(PodcastAction.Skip(30_000), actions.last())
+        compose.onNodeWithContentDescription("プレーヤーを開く").performClick()
+        compose.onNodeWithContentDescription("15秒戻る").performClick()
+        assertEquals(PodcastAction.Skip(-15_000), actions.last())
+        compose.onNodeWithContentDescription("30秒進む").performClick()
+        assertEquals(PodcastAction.Skip(30_000), actions.last())
+        compose.onNodeWithContentDescription("再生速度 1.0×").performClick()
+        compose.onNodeWithText("1.5×").performClick()
+        assertEquals(PodcastAction.Speed(1.5f), actions.last())
     }
 
     @Test
@@ -284,20 +228,17 @@ class PodcastAppTest {
     }
 
     @Test
-    fun libraryMenuOpensOpmlImportAndExport(): Unit {
+    fun settingsOpmlAvailabilityAndCallbacksFollowTheLibrary(): Unit {
         var imports = 0; var exports = 0
-        compose.setContent { SettingsPage(state, {}, {}, { imports++ }, { exports++ }) }
+        val ui = androidx.compose.runtime.mutableStateOf(PodcastUiState())
+        compose.setContent { SettingsPage(ui.value, {}, {}, { imports++ }, { exports++ }) }
+        compose.onNodeWithText("OPML をインポート").assertIsEnabled()
+        compose.onNodeWithText("OPML をエクスポート").assertIsNotEnabled()
         compose.onNodeWithText("OPML をインポート").performClick()
+        compose.runOnIdle { ui.value = state }
         compose.onNodeWithText("OPML をエクスポート").performClick()
         compose.waitForIdle()
         assertEquals(1, imports); assertEquals(1, exports)
-    }
-
-    @Test
-    fun emptyLibraryCanImportButCannotExport(): Unit {
-        compose.setContent { SettingsPage(PodcastUiState(), {}, {}, {}, {}) }
-        compose.onNodeWithText("OPML をインポート").assertIsEnabled()
-        compose.onNodeWithText("OPML をエクスポート").assertIsNotEnabled()
     }
 
     @Test

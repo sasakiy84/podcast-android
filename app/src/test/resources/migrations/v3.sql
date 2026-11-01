@@ -1,0 +1,24 @@
+-- Frozen schema from v0.5.0; do not derive from the current PodcastStore.
+CREATE TABLE podcasts (feed TEXT PRIMARY KEY, title TEXT NOT NULL, author TEXT NOT NULL, artwork TEXT NOT NULL, description TEXT NOT NULL, website TEXT NOT NULL DEFAULT '');
+CREATE TABLE episodes (id TEXT PRIMARY KEY, feed TEXT NOT NULL, title TEXT NOT NULL, audio TEXT NOT NULL, description TEXT NOT NULL, published INTEGER NOT NULL, duration INTEGER NOT NULL, artwork TEXT NOT NULL);
+CREATE INDEX episodes_feed ON episodes(feed);
+CREATE TABLE progress (id TEXT PRIMARY KEY, position INTEGER NOT NULL, duration INTEGER NOT NULL, completed INTEGER NOT NULL);
+CREATE TABLE downloads (id TEXT PRIMARY KEY, manager_id INTEGER NOT NULL);
+CREATE TABLE queues (id TEXT PRIMARY KEY, name TEXT NOT NULL, created INTEGER NOT NULL);
+CREATE TABLE queue_entries (queue_id TEXT NOT NULL, episode_id TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY(queue_id, episode_id));
+CREATE INDEX queue_episode ON queue_entries(episode_id);
+CREATE TABLE queue_rules (queue_id TEXT NOT NULL, feed TEXT NOT NULL, include_words TEXT NOT NULL, exclude_words TEXT NOT NULL, match_all INTEGER NOT NULL, auto_download INTEGER NOT NULL, enabled INTEGER NOT NULL, PRIMARY KEY(queue_id, feed));
+CREATE TABLE podcast_options (feed TEXT PRIMARY KEY, auto_download INTEGER NOT NULL);
+CREATE TABLE automatic_downloads (episode_id TEXT PRIMARY KEY);
+CREATE TABLE favorites (id TEXT PRIMARY KEY);
+CREATE INDEX episodes_published ON episodes(published DESC);
+CREATE INDEX episodes_feed_published ON episodes(feed, published DESC);
+INSERT INTO podcasts (feed,title,author,artwork,description) VALUES ('https://example.org/rss','番組','配信者','','説明');
+INSERT INTO episodes (id,feed,title,audio,description,published,duration,artwork) VALUES ('one','https://example.org/rss','回','https://example.org/one.mp3','本文',1,1000,'');
+INSERT INTO progress VALUES ('one',500,1000,0);
+INSERT INTO downloads VALUES ('one',42);
+INSERT INTO queues VALUES ('news','ニュース',1);
+INSERT INTO queue_entries VALUES ('news','one',0);
+INSERT INTO queue_rules VALUES ('news','https://example.org/rss','キーワード','広告',0,1,1);
+INSERT INTO podcast_options VALUES ('https://example.org/rss',1);
+INSERT INTO favorites VALUES ('one');

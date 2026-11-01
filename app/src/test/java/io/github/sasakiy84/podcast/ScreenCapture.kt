@@ -19,11 +19,11 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
 
-/** Navigates the real Compose screens with local sample data; no network or audio service. */
+/** Opt-in screen catalog for visual review, not an automated image comparison. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], qualifiers = "ja-w360dp-h800dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-class PodcastScreenshotTest {
+class ScreenCapture {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val directory = File(requireNotNull(System.getProperty("podcast.screenshotDir")), "all-screens")
     private val titles = listOf("MORNING\nNOTES", "TECH\nTABLE", "WORLD\nNEWS", "DEEP\nBREATH", "ENGLISH", "WEEKLY", "DESIGN", "SCIENCE", "DAILY")

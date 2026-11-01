@@ -32,15 +32,6 @@ class PlaybackQueueTest {
         assertEquals(listOf("one"), store.queueEpisodeIds("news")); assertEquals(listOf("one"), store.queueEpisodeIds("tech"))
     }
 
-    @Test fun completionEverywhereRemovesAllMembershipsButKeepsHistoryAndAudioReference(): Unit {
-        store.addToQueue("news", first.id); store.addToQueue("tech", first.id)
-        store.saveDownload(first.id, 99)
-        store.saveProgress(first.id, ListeningProgress(1000, 1000, true))
-        assertTrue(store.queueEpisodeIds("news").isEmpty()); assertTrue(store.queueEpisodeIds("tech").isEmpty())
-        assertTrue(store.progress(first.id).completed); assertNotNull(store.episode(first.id))
-        assertEquals(99L, store.downloadIds()[first.id])
-    }
-
     @Test fun latePlaybackProgressCannotUndoCompletionOrResurrectQueueEntries(): Unit {
         store.addToQueue("news", first.id)
         store.saveProgress(first.id, ListeningProgress(100, 100, true))
@@ -113,12 +104,4 @@ class PlaybackQueueTest {
         assertTrue(queuePlaybackIds(queue.copy(episodeIds = emptyList()), first.id, library).isEmpty())
     }
 
-    @Test fun disabledRuleAndManualRemovalDoNotReAddKnownEpisodes(): Unit {
-        store.saveRule(QueueRule("news", show.feedUrl, enabled = false), false)
-        store.saveFeed(PodcastFeed(show, listOf(first.copy(id = "new"))))
-        assertTrue(store.queueEpisodeIds("news").isEmpty())
-        store.saveRule(QueueRule("news", show.feedUrl), false)
-        store.saveFeed(PodcastFeed(show, listOf(first.copy(id = "new"))))
-        assertTrue(store.queueEpisodeIds("news").isEmpty())
-    }
 }

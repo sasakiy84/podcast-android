@@ -26,7 +26,7 @@ class PodcastDirectoryTest {
     fun spotifyShowPageFindsCandidatesThatRequireConfirmation(): Unit {
         val directory = PodcastDirectory { url ->
             when {
-                url.startsWith("https://open.spotify.com/show/") -> WebResponse(url, """<html><head><meta property="og:title" content="Morning"/></head><body>Latest episode has a different title</body></html>""", "text/html")
+                url.startsWith("https://open.spotify.com/show/") -> WebResponse(url, """<html><head><meta property="og:title" content="Morning | Podcast on Spotify"/></head><body>Latest episode has a different title</body></html>""", "text/html")
                 url.contains("term=Morning") -> WebResponse(url, apple, "application/json")
                 else -> error("Unexpected public endpoint: $url")
             }
@@ -47,12 +47,19 @@ class PodcastDirectoryTest {
     }
 
     @Test
-    fun amazonSharedPageFallsBackToConfirmedDirectoryCandidates(): Unit {
-        val directory = PodcastDirectory { url ->
-            if (url.contains("itunes.apple.com")) WebResponse(url, apple, "application/json")
-            else WebResponse(url, """<html><head><meta property="og:title" content="Morning - Podcast on Amazon Music"></head></html>""", "text/html")
+    fun sharedPlatformTitlesResolveConfirmedDirectoryCandidates(): Unit {
+        for ((url, title, platform) in listOf(
+            Triple("https://music.amazon.co.jp/podcasts/uuid", "Morning - Podcast on Amazon Music", "Amazon Music"),
+            Triple("https://pca.st/abc", "Morning - Pocket Casts", "Pocket Casts"),
+        )) {
+            val directory = PodcastDirectory { endpoint ->
+                if (endpoint.contains("itunes.apple.com")) {
+                    check(endpoint.contains("term=Morning"))
+                    WebResponse(endpoint, apple, "application/json")
+                } else WebResponse(endpoint, """<html><head><meta property="og:title" content="$title"></head></html>""", "text/html")
+            }
+            assertTrue(directory.resolve(url).single().source.contains("$platform の番組候補"))
         }
-        assertTrue(directory.resolve("https://music.amazon.co.jp/podcasts/uuid").single().source.contains("Amazon Music の番組候補"))
     }
 
     @Test
@@ -82,7 +89,7 @@ class PodcastDirectoryTest {
 
     @Test(expected = PodcastException::class)
     fun unrecognizedHtmlPageDoesNotRegisterAnArbitraryPodcast(): Unit {
-        PodcastDirectory { WebResponse(it, "<html><title>Not a feed</title></html>", "text/html") }.resolve("https://example.org/page")
+        PodcastDirectory { WebResponse(it, "<html><title>Not a feed</title></html>", "text/html") }.resolve("https://open.spotify.com.evil.example/page")
     }
 
     @Test(expected = PodcastException::class)
@@ -90,4 +97,14 @@ class PodcastDirectoryTest {
         PodcastDirectory { url -> if (url.contains("open.spotify.com")) WebResponse(url, "<html><title>Exclusive - Spotify</title></html>", "text/html") else WebResponse(url, """{"results":[]}""", "application/json") }
             .resolve("https://open.spotify.com/show/exclusive")
     }
+    @Test
+    fun appleDirectoryDiscardsEntriesWithoutPublicRssAndDeduplicates(): Unit {
+        val body = """{"results":[{"collectionName":"Show","artistName":"Host","feedUrl":"https://example.org/feed"},
+            {"collectionName":"Show","feedUrl":"https://example.org/feed"},{"collectionName":"Exclusive"},
+            {"collectionName":"Invalid","feedUrl":"file:///etc/passwd"}]}"""
+        val result = PodcastDirectory.appleResults(body)
+        assertEquals(1, result.size)
+        assertEquals("Host", result.single().podcast.author)
+    }
+
 }

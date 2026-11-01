@@ -21,15 +21,6 @@ class EpisodeNavigationTest {
     private val episodes = (1..40).map { Episode("$it", show.feedUrl, "エピソード$it", "https://example.org/$it.mp3") }
     private val state = PodcastUiState(library = Library(listOf(show), episodes))
 
-    @Test fun withoutAPlayerTheListExtendsToNavigation(): Unit {
-        compose.setContent { PodcastApp(state) }
-        compose.onNodeWithContentDescription("タブ: エピソード").performClick()
-        val list = compose.onNodeWithTag("episodes-list").fetchSemanticsNode().boundsInRoot
-        val nav = compose.onNodeWithTag("bottom-navigation").fetchSemanticsNode().boundsInRoot
-        assertEquals(nav.top, list.bottom, 1f)
-        compose.onNodeWithContentDescription("プレーヤーを開く").assertDoesNotExist()
-    }
-
     @Test fun removingThePlayerReclaimsItsHeight(): Unit {
         val ui = mutableStateOf(state.copy(playback = PlaybackUi("1", connected = true)))
         compose.setContent { PodcastApp(ui.value) }
@@ -40,6 +31,7 @@ class EpisodeNavigationTest {
         val nav = compose.onNodeWithTag("bottom-navigation").fetchSemanticsNode().boundsInRoot
         assertTrue(after - before >= 48f)
         assertEquals(nav.top, after, 1f)
+        compose.onNodeWithContentDescription("プレーヤーを開く").assertDoesNotExist()
     }
 
     @Test fun withoutAPlayerMessagesDoNotReserveItsHeight(): Unit {
@@ -71,18 +63,6 @@ class EpisodeNavigationTest {
         compose.onNodeWithContentDescription("プレーヤーを開く").assertIsDisplayed()
     }
 
-    @Test fun queueRowsDoNotOfferToAddAnEpisodeAlreadyInTheQueue(): Unit {
-        val queues = listOf(PlaybackQueue("q", "あとで聴く", listOf("1", "2", "3")))
-        compose.setContent { PodcastApp(state.copy(library = state.library.copy(queues = queues))) }
-        compose.onNodeWithContentDescription("タブ: キュー").performClick()
-        compose.onNodeWithText("あとで聴く").performClick()
-        compose.onNodeWithContentDescription("デフォルトキューに追加: エピソード1").assertDoesNotExist()
-        compose.onNodeWithContentDescription("キューを再生").assertIsDisplayed()
-        compose.onNodeWithContentDescription("キューのメニュー").performClick()
-        compose.onNodeWithText("名前を変更").assertIsDisplayed()
-        compose.onNodeWithText("キューを削除").assertIsDisplayed()
-    }
-
     @Test fun episodeRowsExposeOnlyThePlayButton(): Unit {
         compose.setContent { PodcastApp(state.copy(library = state.library.copy(queues = listOf(PlaybackQueue("q", "あとで聴く", listOf("1")))))) }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
@@ -94,6 +74,10 @@ class EpisodeNavigationTest {
         compose.onNodeWithContentDescription("エピソード詳細: エピソード1").performTouchInput { longClick() }
         compose.onNodeWithText("ダウンロード").assertIsDisplayed()
         compose.onNodeWithText("キューから外す").assertIsDisplayed()
+        compose.onNodeWithText("ダウンロード").performClick()
+        compose.onNodeWithContentDescription("キューのメニュー").performClick()
+        compose.onNodeWithText("名前を変更").assertIsDisplayed()
+        compose.onNodeWithText("キューを削除").assertIsDisplayed()
     }
 
 }

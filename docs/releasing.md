@@ -44,7 +44,7 @@ git push origin v0.1.1
 
 `vMAJOR.MINOR.PATCH` 形式のタグだけを使います。タグ名が versionName、リリースワークフローの run_number が versionCode になります。配布済みアプリの更新では versionCode が過去の値を上回ることを確認してください。同じワークフローを再実行しても versionCode は変わりません。
 
-ワークフローは Secrets を検査し、UI テスト・release lint を実行して署名付き APK と AAB をビルドします。署名検証後、APK・AAB・R8 mapping・SHA256SUMS を GitHub の **Pre-release** として公開します。失敗したビルドは公開しません。Google Play へのアップロードは行いません。
+ワークフローは Secrets を検査し、UI テスト・release lint を実行して署名付き APK と AAB をビルドします。署名検証後、APK・AAB・R8 mapping・SHA256SUMS を GitHub の 通常のリリース として公開します。失敗したビルドは公開しません。Google Play へのアップロードは行いません。
 
 自動の GITHUB_TOKEN を使うため、リリース用 PAT は不要です。リポジトリで GitHub Actions を有効にしておいてください。
 

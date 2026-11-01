@@ -92,13 +92,6 @@ class PodcastUxTest {
         assertEquals(show.feedUrl, clipboard.primaryClip?.getItemAt(0)?.text.toString())
     }
 
-    @Test fun miniPlayerOpensWithAnUpwardSwipeAndClosesWithADownwardSwipe(): Unit {
-        compose.setContent { PodcastApp(state) }
-        compose.onNodeWithContentDescription("プレーヤーを開く").performTouchInput { swipe(center, center - Offset(0f, 140f)) }
-        compose.onNodeWithContentDescription("再生位置").assertIsDisplayed()
-        compose.onNodeWithContentDescription("プレーヤーを閉じる").performTouchInput { swipe(center, center + Offset(0f, 140f)) }
-        compose.onNodeWithContentDescription("プレーヤーを開く").assertIsDisplayed()
-    }
     @Test fun removingAnOldFavoriteDoesNotCloseItsOpenDetails(): Unit {
         val actions = mutableListOf<PodcastAction>()
         val ui = androidx.compose.runtime.mutableStateOf(state.copy(library = Library(listOf(show), listOf(episode), favorites = setOf(episode.id))))

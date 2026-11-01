@@ -18,8 +18,8 @@ android {
         applicationId = "io.github.sasakiy84.podcast"
         minSdk = 36
         targetSdk = 36
-        versionCode = providers.gradleProperty("releaseVersionCode").orElse("14").get().toInt()
-        versionName = providers.gradleProperty("releaseVersion").orElse("0.7.4").get()
+        versionCode = providers.gradleProperty("releaseVersionCode").orElse("15").get().toInt()
+        versionName = providers.gradleProperty("releaseVersion").orElse("0.8.0").get()
     }
     if (hasReleaseSigning) {
         signingConfigs {
@@ -50,6 +50,10 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
+            // The screen catalog produces review artifacts; it does not assert image equality.
+            if (!providers.gradleProperty("captureScreenshots").map(String::toBoolean).orElse(false).get()) {
+                it.exclude("**/ScreenCapture.class")
+            }
             it.maxHeapSize = providers.gradleProperty("testHeap").orElse("512m").get()
             // Android 16's shared-memory shadow needs this JDK module during local tests.
             it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")

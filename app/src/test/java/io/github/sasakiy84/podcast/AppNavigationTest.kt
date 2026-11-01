@@ -59,8 +59,12 @@ class AppNavigationTest {
             repository.settings.setRefreshHours(6); repository.configureBackgroundSync()
             val job = context.getSystemService(android.app.job.JobScheduler::class.java).allPendingJobs.single()
             assertEquals(6 * 3600_000L, job.intervalMillis)
+            assertTrue(job.isPersisted)
+            assertTrue(job.requiredNetwork?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true)
             repository.settings.setRefreshHours(12); repository.configureBackgroundSync()
             assertEquals(12 * 3600_000L, context.getSystemService(android.app.job.JobScheduler::class.java).allPendingJobs.single().intervalMillis)
+            repository.unsubscribe(show)
+            assertTrue(context.getSystemService(android.app.job.JobScheduler::class.java).allPendingJobs.isEmpty())
         } finally { repository.store.close(); context.deleteDatabase("podcasts.db") }
     }
     @Test fun playerFollowsTheFingerBeforeSettlingClosed(): Unit {

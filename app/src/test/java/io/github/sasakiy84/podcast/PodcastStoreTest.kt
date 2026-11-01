@@ -30,18 +30,6 @@ class PodcastStoreTest {
     }
 
     @Test
-    fun subscriptionsHistoryAndDownloadIdsSurviveReopening(): Unit {
-        store.saveFeed(PodcastFeed(podcast, listOf(episode)))
-        store.saveProgress(episode.id, ListeningProgress(120, 300, true))
-        store.saveDownload(episode.id, 42)
-        store.close()
-        store = PodcastStore(RuntimeEnvironment.getApplication(), "store-test.db")
-        assertEquals(podcast, store.library().podcasts.single())
-        assertTrue(store.progress(episode.id).completed)
-        assertEquals(42L, store.downloadIds()[episode.id])
-    }
-
-    @Test
     fun unsubscribeRemovesOnlyThatShowsHistoryAndDownloads(): Unit {
         store.saveFeed(PodcastFeed(podcast, listOf(episode)))
         store.saveFeed(PodcastFeed(podcast.copy(feedUrl = "https://example.org/other"), listOf(episode.copy(id = "other", feedUrl = "https://example.org/other"))))

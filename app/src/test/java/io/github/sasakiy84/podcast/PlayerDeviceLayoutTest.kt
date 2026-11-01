@@ -41,18 +41,19 @@ class PlayerDeviceLayoutTest {
         for (i in 0 until content.childCount) ViewCompat.dispatchApplyWindowInsets(content.getChildAt(i), insets)
     }
 
-    private fun assertPaintedPlayer(name: String): Unit {
+    private fun assertPaintedPlayer(name: String, saveScreenshot: Boolean = true): Unit {
         compose.waitForIdle()
         val mini = compose.onNodeWithTag("mini-player").fetchSemanticsNode().boundsInRoot
         val navigation = compose.onNodeWithTag("bottom-navigation").fetchSemanticsNode().boundsInRoot
-        println("$name density=${compose.activity.resources.displayMetrics.density} mini=$mini navigation=$navigation")
         assertEquals("Mini must meet navigation", navigation.top, mini.bottom, 2f)
         compose.runOnIdle {
             val view = compose.activity.window.decorView
             val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
             view.draw(Canvas(bitmap))
-            val file = File(System.getProperty("podcast.screenshotDir"), "device/$name.png"); file.parentFile!!.mkdirs()
-            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            if (saveScreenshot) {
+                val file = File(System.getProperty("podcast.screenshotDir"), "device/$name.png"); file.parentFile!!.mkdirs()
+                file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
             var colored = 0; var controlPixels = 0; var total = 0
             for (y in mini.top.toInt().coerceAtLeast(0) until mini.bottom.toInt().coerceAtMost(bitmap.height) step 3) {
                 for (x in mini.left.toInt().coerceAtLeast(0) until mini.right.toInt().coerceAtMost(bitmap.width) step 3) {
@@ -66,13 +67,6 @@ class PlayerDeviceLayoutTest {
             assertTrue("Mini is blank: $colored / $total pixels", total > 0 && colored > total / 3)
             assertTrue("Playback control is not painted: $controlPixels / $total", controlPixels > total / 100)
         }
-    }
-
-    @Test fun restoredPlayerWithGestureInsetsHasVisibleControls(): Unit {
-        compose.runOnUiThread { compose.activity.enableEdgeToEdge() }
-        compose.setContent { PodcastApp(base) }
-        insets()
-        assertPaintedPlayer("restored-xxhdpi")
     }
 
     @Test fun loadingThenRestoringPlayerAndClosingItDoesNotLeaveAWhitePanel(): Unit {
@@ -93,7 +87,7 @@ class PlayerDeviceLayoutTest {
         insets()
         repeat(12) { frame ->
             compose.mainClock.advanceTimeByFrame()
-            assertPaintedPlayer("frame-$frame-xxhdpi")
+            assertPaintedPlayer("frame-$frame-xxhdpi", saveScreenshot = frame == 11)
         }
         compose.mainClock.autoAdvance = true
     }

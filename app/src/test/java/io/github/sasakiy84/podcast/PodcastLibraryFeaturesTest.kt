@@ -99,30 +99,15 @@ class PodcastLibraryFeaturesTest {
             player.seekToDefaultPosition(0); idle()
             assertEquals(1.2f, player.playbackParameters.speed, 0.001f)
             assertEquals(2f, settings.globalSpeed, 0.001f)
+            repeat(5) { player.seekToDefaultPosition(1); player.seekToDefaultPosition(0) }
+            idle()
+            assertEquals(2f, settings.globalSpeed, 0.001f)
+            assertEquals(1.2f, settings.podcastSpeed("podcast-a") ?: 0f, 0.001f)
+            assertEquals(1.2f, player.playbackParameters.speed, 0.001f)
             settings.useGlobal("podcast-a"); idle()
             assertEquals(2f, player.playbackParameters.speed, 0.001f)
             settings.setSort(PodcastSort.Updated)
             assertEquals(PodcastSort.Updated, PlaybackPreferences(prefs).sort)
-        } finally { controller.close(); player.release(); prefs.edit().clear().commit() }
-    }
-
-    @Test fun rapidTransitionsDoNotRewriteEitherStoredSpeedScope(): Unit {
-        val context = RuntimeEnvironment.getApplication()
-        val prefs = context.getSharedPreferences("rapid-speed-test", 0)
-        prefs.edit().clear().commit()
-        val settings = PlaybackPreferences(prefs)
-        settings.setSpeed(1.7f); settings.setSpeed(1.2f, "a")
-        val player = ExoPlayer.Builder(context).build()
-        val controller = PlaybackSpeedController(player, settings)
-        fun item(id: String): MediaItem = MediaItem.Builder().setMediaId(id).setUri("https://example.org/$id.mp3")
-            .setMediaMetadata(MediaMetadata.Builder().setExtras(android.os.Bundle().apply { putString("feed_url", id) }).build()).build()
-        try {
-            player.setMediaItems(listOf(item("a"), item("b")))
-            repeat(5) { player.seekToDefaultPosition(1); player.seekToDefaultPosition(0) }
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
-            assertEquals(1.7f, settings.globalSpeed, 0.001f)
-            assertEquals(1.2f, settings.podcastSpeed("a") ?: 0f, 0.001f)
-            assertEquals(1.2f, player.playbackParameters.speed, 0.001f)
         } finally { controller.close(); player.release(); prefs.edit().clear().commit() }
     }
 

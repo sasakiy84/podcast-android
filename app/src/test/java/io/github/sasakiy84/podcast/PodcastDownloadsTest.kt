@@ -52,8 +52,13 @@ class PodcastDownloadsTest {
         request.setStatus(DownloadManager.STATUS_PENDING)
         repository.saveRule(QueueRule("tech", podcast.feedUrl, autoDownload = true), true)
         assertEquals(id, repository.store.downloadIds()[episode.id])
+        repository.load()
+        repository.download(episode)
         assertEquals(1, shadowOf(manager).requestCount)
+        assertEquals(DownloadStatus.Waiting, repository.library.value.downloads[episode.id]?.status)
+        file.parentFile?.mkdirs(); file.writeBytes(byteArrayOf(1))
         repository.removeDownload(episode)
+        assertFalse(file.exists())
         repository.processAutomaticDownloads()
         assertTrue(repository.store.downloadIds().isEmpty())
         assertTrue(repository.store.automaticDownloadIds().isEmpty())
@@ -71,18 +76,6 @@ class PodcastDownloadsTest {
         assertTrue(repository.store.queueEpisodeIds("tech").isEmpty())
         assertTrue(file.exists())
         assertNotNull(repository.store.downloadIds()[episode.id])
-    }
-
-    @Test
-    fun duplicateRequestsDoNotStartTwoDownloads(): Unit = runBlocking {
-        repository.download(episode)
-        val id = requireNotNull(repository.store.downloadIds()[episode.id])
-        val request: ShadowDownloadManager.ShadowRequest = Shadow.extract(shadowOf(manager).getRequest(id))
-        request.setStatus(DownloadManager.STATUS_PENDING)
-        repository.load()
-        repository.download(episode)
-        assertEquals(1, shadowOf(manager).requestCount)
-        assertEquals(DownloadStatus.Waiting, repository.library.value.downloads[episode.id]?.status)
     }
 
     @Test
@@ -110,15 +103,6 @@ class PodcastDownloadsTest {
         assertEquals(Uri.parse(episode.audioUrl), repository.audioUri(episode))
     }
 
-    @Test
-    fun removingDownloadClearsTheFileAndPersistedManagerId(): Unit = runBlocking {
-        repository.download(episode)
-        file.parentFile?.mkdirs()
-        file.writeBytes(byteArrayOf(1))
-        repository.removeDownload(episode)
-        assertTrue(repository.store.downloadIds().isEmpty())
-        assertFalse(file.exists())
-    }
     @Test fun finishingPlaybackRemovesAudioAndDownloadRecordButKeepsHistoryAndFavorite(): Unit = runBlocking {
         repository.store.saveQueue("news", "ニュース")
         repository.store.saveQueue("tech", "技術")

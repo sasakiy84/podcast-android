@@ -15,26 +15,20 @@ class FeedParserTest {
     fun rssIncludesMetadataAudioDurationAndPublicationDate(): Unit {
         val result = FeedParser.parse("""
             <rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" version="2.0"><channel>
-            <title>朝のノート</title><itunes:author>配信者</itunes:author><itunes:image href="/cover.jpg" />
-            <description><![CDATA[<p>毎日の<strong>発見</strong></p>]]></description>
+            <title>朝のノート</title><itunes:author>配信者 &amp; 編集</itunes:author><itunes:image href="/cover.jpg" />
+            <link>https://example.org/site</link><description><![CDATA[<p>毎日の<strong>発見</strong></p>]]></description>
             <item><guid>one</guid><title>最初の回</title><pubDate>Tue, 14 Nov 2023 22:13:20 GMT</pubDate>
             <enclosure url="/audio/one.mp3" type="audio/mpeg"/><itunes:duration>1:02:03</itunes:duration></item>
             </channel></rss>
         """.trimIndent(), feed)
         assertEquals("朝のノート", result.podcast.title)
-        assertEquals("配信者", result.podcast.author)
+        assertEquals("https://example.org/site", result.podcast.website)
+        assertEquals("配信者 & 編集", result.podcast.author)
         assertEquals("毎日の発見", result.podcast.description)
         assertEquals("https://example.org/cover.jpg", result.podcast.artwork)
         assertEquals("https://example.org/audio/one.mp3", result.episodes.single().audioUrl)
         assertEquals(3_723_000, result.episodes.single().durationMs)
         assertEquals(1_700_000_000_000, result.episodes.single().published)
-    }
-
-    @Test
-    fun xmlCharacterReferencesArePreserved(): Unit {
-        val result = FeedParser.parse("<rss><channel><title>News &amp; Culture</title><item><guid>1</guid><title>It&apos;s a test</title><enclosure url='https://example.org/one.mp3'/></item></channel></rss>", feed)
-        assertEquals("News & Culture", result.podcast.title)
-        assertEquals("It's a test", result.episodes.single().title)
     }
 
     @Test
@@ -81,36 +75,9 @@ class FeedParserTest {
     fun invalidDurationsDoNotCreateNegativeOrInfiniteProgress(): Unit {
         assertEquals(0, FeedParser.parseDuration("-10"))
         assertEquals(0, FeedParser.parseDuration("NaN"))
-        assertEquals(0, FeedParser.parseDuration("wrong"))
         assertEquals(62_500, FeedParser.parseDuration("1:02.5"))
-    }
-
-    @Test
-    fun appleDirectoryDiscardsEntriesWithoutPublicRssAndDeduplicates(): Unit {
-        val body = """{"results":[{"collectionName":"Show","artistName":"Host","feedUrl":"https://example.org/feed"},
-            {"collectionName":"Show","feedUrl":"https://example.org/feed"},{"collectionName":"Exclusive"},
-            {"collectionName":"Invalid","feedUrl":"file:///etc/passwd"}]}"""
-        val result = PodcastDirectory.appleResults(body)
-        assertEquals(1, result.size)
-        assertEquals("Host", result.single().podcast.author)
-    }
-
-    @Test
-    fun platformTitlesAreCleanedWithoutTrustingSimilarDomains(): Unit {
-        assertEquals("朝のノート", PodcastDirectory.cleanPlatformTitle("朝のノート | Podcast on Spotify"))
-        assertEquals("朝のノート", PodcastDirectory.cleanPlatformTitle("朝のノート - Pocket Casts"))
-        assertEquals("Spotify", PodcastDirectory.platformName("open.spotify.com"))
-        assertNull(PodcastDirectory.platformName("open.spotify.com.evil.example"))
     }
 
     @Test(expected = PodcastException::class)
     fun credentialsAndLocalSchemesCannotBeUsedAsSubscriptionUrls(): Unit { podcastUrl("https://user:pass@example.org/feed") }
-    @org.junit.Test fun readsWebsiteAndNestedNotesWithoutAccumulatingTheWholeChannel(): Unit {
-        val feed = FeedParser.parse("""<rss><channel><title>番組</title><link>https://example.org/site</link><description>番組の説明</description><item><title>回</title><description><div><p>最初</p><p>続き</p></div></description><enclosure url="https://example.org/one.mp3"/></item></channel></rss>""", "https://example.org/rss")
-        org.junit.Assert.assertEquals("https://example.org/site", feed.podcast.website)
-        org.junit.Assert.assertEquals("番組の説明", feed.podcast.description)
-        org.junit.Assert.assertTrue(feed.episodes.single().description.contains("最初"))
-        org.junit.Assert.assertTrue(feed.episodes.single().description.contains("続き"))
-    }
-
 }

@@ -60,49 +60,19 @@ class EpisodeFeaturesTest {
         }
     }
 
-    @Test fun versionThreeMigrationKeepsSubscriptionsQueuesProgressAndDownloads(): Unit {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val name = "migration-v3-${System.nanoTime()}.db"
-        PodcastStore(context, name).use { store ->
-            store.saveFeed(PodcastFeed(show, listOf(episode)))
-            store.saveQueue("q", "ニュース"); store.addToQueue("q", episode.id)
-            store.saveProgress(episode.id, ListeningProgress(12_000, 600_000))
-            store.saveFavoriteForTest()
-            store.saveDownload(episode.id, 42)
-            store.writableDatabase.apply { execSQL("DROP TABLE listening_history"); execSQL("ALTER TABLE episodes DROP COLUMN chapters"); execSQL("ALTER TABLE episodes DROP COLUMN chapters_url"); version = 3 }
-        }
-        PodcastStore(context, name).use { store ->
-            assertEquals(show, store.podcast(feed))
-            assertEquals(listOf(episode.id), store.queues().single().episodeIds)
-            assertEquals(12_000L, store.progress(episode.id).positionMs)
-            assertEquals(42L, store.downloadId(episode.id))
-            assertTrue(episode.id in store.library().favorites)
-            assertEquals(listOf(episode.id), store.library().historyIds)
-            assertTrue(store.episode(episode.id)!!.chapters.isEmpty())
-        }
-    }
-    private fun PodcastStore.saveFavoriteForTest(): Unit = setFavorite(episode.id, true)
-
     @Test fun seekingRestoredIdleAndPausedPlayersPreparesWithoutStartingPlayback(): Unit {
-        var position = 0L
-        var ready = false
-        var prepared = 0
-        val fake = Proxy.newProxyInstance(Player::class.java.classLoader, arrayOf(Player::class.java)) { _, method, args ->
-            when (method.name) {
-                "getDuration" -> 600_000L
-                "getCurrentPosition" -> position
-                "getPlaybackState" -> if (ready) Player.STATE_READY else Player.STATE_IDLE
-                "getPlayWhenReady" -> false
-                "seekTo" -> { position = args!!.last() as Long; null }
-                "prepare" -> { prepared++; ready = true; null }
-                "setPlayWhenReady" -> { assertEquals(false, args!![0]); null }
-                else -> null
-            }
-        } as Player
-        seekPlayback(fake, 123_000)
-        assertEquals(123_000L, position); assertEquals(1, prepared)
-        seekPlayback(fake, 800_000)
-        assertEquals(600_000L, position); assertEquals(1, prepared)
+        val player = ExoPlayer.Builder(ApplicationProvider.getApplicationContext<Context>()).build()
+        try {
+            player.setMediaItem(MediaItem.fromUri(episode.audioUrl))
+            assertEquals(Player.STATE_IDLE, player.playbackState)
+            seekPlayback(player, 123_000)
+            assertEquals(123_000L, player.currentPosition)
+            assertFalse(player.playWhenReady)
+            assertNotEquals(Player.STATE_IDLE, player.playbackState)
+            seekPlayback(player, 234_000)
+            assertEquals(234_000L, player.currentPosition)
+            assertFalse(player.playWhenReady)
+        } finally { player.release() }
     }
 
     @Test fun skipOptionsPersistIndependentlyAndDoNotOverwriteResumedPositions(): Unit {

@@ -1,9 +1,10 @@
 # 保守時の入口
 
-- `PodcastApp` はタブ・番組・モーダルの遷移と画面状態の保持を担当する。番組とエピソード一覧は `LibraryPages`、再生画面は `PlayerPage`、共通の色は `PodcastTheme`。
-- `PodcastUiState` / `PodcastAction` が画面と `PodcastsViewModel` の境界。通信や保存を Composable から直接実行しない。
+- `PodcastApp` はタブ・番組・モーダルの遷移と画面状態の保持を担当する。エピソード詳細のシートは `EpisodeDetailsSheet`。番組とエピソード一覧は `LibraryPages`、再生画面は `PlayerPage`、共通の色は `PodcastTheme`。
+- `PodcastUiState` / `PodcastAction` が画面と `PodcastsViewModel` の境界。通信や保存を Composable から直接実行しない。ViewModel は接続とコルーチン・エラー処理を管理し、再生/再開/キュー再生の方針は `PlaybackCommands` に分離する。設定値のUI反映は `PodcastStatePreferences` の同じ投影処理を使う。
 - `PodcastRepository` が更新の同時実行制限と保存の排他制御を担当する。`PodcastDownloadStorage` は DownloadManager と音声ファイル、`PodcastNotifications` は新着通知を扱う。
 - `PlaybackService` が MediaSession と再生履歴の保存を管理する。キュー反映は `PlaybackQueueSynchronizer`、シークと先頭・末尾スキップは `PlaybackTransport`、速度の追従は `PlaybackSpeedController` に分ける。画面を閉じても再生設定は有効。
+- `PodcastHttp` はHTTP転送・圧縮・文字コード・取得上限、`PodcastDirectory` は検索と共有URLの解決を担当する。
 - `FeedParser` は RSS / Atom と Podlove チャプターをストリーム解析する。`EpisodeContent` は説明文の段落・安全なリンク先と Podcasting 2.0 JSON チャプターを扱い、`ContentText` が選択・コピー可能なリンク付きテキストを描画する。
 - `PodcastStore` は schema 4。更新は `onUpgrade` で既存の購読・キュー・音声参照を保持する。履歴は実際の再生時に記録し、古い版の再生進捗も引き継ぐ。ただし古い版には視聴日時がないため、移行前の履歴は日時不明として新しい記録より後ろに並ぶ。
 
@@ -11,7 +12,7 @@
 
 新着通知は番組別の既定値がオフ。オンにすると Android の通知権限を要求する。初回の取得では過去回の通知を出さず、以降の新着を番組単位でまとめる。通知だけをオンにした番組も定期更新の対象になる。
 
-変更後は `./gradlew testDebugUnitTest lintDebug assembleDebug`。再生・保存の回帰は `EpisodeFeaturesTest`、操作は `PlayerInteractionTest` / `PodcastUxTest`、画面の明暗・文字拡大は `PodcastScreenshotTest` で確認する。実 RSS / OPML の私的データはテストコードやリポジトリに含めない。
+変更後は `./gradlew testDebugUnitTest lintDebug assembleDebug`。再生・保存の回帰は `EpisodeFeaturesTest`、操作は `PlayerInteractionTest` / `PodcastUxTest`、画像カタログは明示実行の `ScreenCapture` で生成する。テストの削除・統合判断と実行方法は [test-audit.md](test-audit.md) を参照する。実 RSS / OPML の私的データはテストコードやリポジトリに含めない。
 
 `MainActivity` は単一の再生セッションとタブ・番組詳細を保持し、サブ画面では BackHandler で上位へ戻る。アプリ終了は番組一覧のルートだけに委ねる。設定は `SettingsActivity` に分け、OS の Activity バックスタックで戻る。再生画面は `PlayerHost` の常設 Material BottomSheetScaffold とし、ミニプレーヤーと展開画面でアンカーを共有する。標準のアンカー・速度・ネストスクロール・hide アニメーションで開閉する。
 
