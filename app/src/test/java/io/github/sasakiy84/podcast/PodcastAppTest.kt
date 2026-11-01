@@ -265,6 +265,45 @@ class PodcastAppTest {
         screenshot("player-large-text")
     }
 
+    @Test
+    fun libraryMenuOpensOpmlImportAndExport(): Unit {
+        var imports = 0
+        var exports = 0
+        compose.setContent { PodcastApp(state, onImportOpml = { imports++ }, onExportOpml = { exports++ }) }
+        compose.onNodeWithContentDescription("番組一覧のメニュー").performClick()
+        screenshot("opml-menu")
+        compose.onNodeWithText("OPML をインポート").performClick()
+        assertEquals(1, imports)
+        compose.onNodeWithContentDescription("番組一覧のメニュー").performClick()
+        compose.onNodeWithText("OPML をエクスポート").performClick()
+        assertEquals(1, exports)
+    }
+
+    @Test
+    fun emptyLibraryCanImportButCannotExport(): Unit {
+        compose.setContent { PodcastApp() }
+        compose.onNodeWithContentDescription("番組一覧のメニュー").performClick()
+        compose.onNodeWithText("OPML をインポート").assertIsEnabled()
+        compose.onNodeWithText("OPML をエクスポート").assertIsNotEnabled()
+    }
+
+    @Test
+    fun unsubscribeConfirmationIsAnchoredAtTheBottomAndCanBeCancelled(): Unit {
+        val actions = mutableListOf<PodcastAction>()
+        compose.setContent { PodcastApp(state, actions::add) }
+        compose.onNodeWithContentDescription(second.title).performClick()
+        compose.onNodeWithContentDescription("購読を解除").performClick()
+        val title = compose.onNodeWithText("購読を解除しますか？")
+        compose.waitUntil(5_000) { title.isDisplayed() }
+        compose.mainClock.advanceTimeBy(500)
+        org.junit.Assert.assertTrue(title.fetchSemanticsNode().boundsInRoot.top > 400f)
+        compose.onNodeWithText("キャンセル").performClick()
+        org.junit.Assert.assertTrue(actions.none { it is PodcastAction.Unsubscribe })
+        compose.onNodeWithContentDescription("購読を解除").performClick()
+        compose.onNodeWithText("購読を解除").performClick()
+        assertEquals(PodcastAction.Unsubscribe(second), actions.last())
+    }
+
     private fun artwork(title: String, color: Int): String {
         val file = File(requireNotNull(System.getProperty("podcast.screenshotDir")), "fixtures/${title.hashCode()}.png")
         check(file.parentFile!!.mkdirs() || file.parentFile!!.isDirectory)

@@ -56,6 +56,9 @@ class PodcastScreenshotTest {
         fun replace(value: PodcastUiState): Unit { compose.runOnIdle { ui.value = value }; compose.waitForIdle() }
 
         shot("01-library")
+        icon("番組一覧のメニュー")
+        shot("37-opml-menu")
+        text("OPML をインポート")
         icon(shows[0].title)
         shot("02-podcast-details")
         icon("購読を解除")

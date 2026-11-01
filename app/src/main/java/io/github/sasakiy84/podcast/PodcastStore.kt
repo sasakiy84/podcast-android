@@ -31,6 +31,20 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") : SQL
         db.execSQL("CREATE TABLE automatic_downloads (episode_id TEXT PRIMARY KEY)")
     }
 
+    fun importSubscriptions(podcasts: List<Podcast>): List<Podcast> {
+        val added = mutableListOf<Podcast>()
+        writableDatabase.transaction {
+            for (podcast in podcasts) {
+                val inserted = insertWithOnConflict("podcasts", null, ContentValues().apply {
+                    put("feed", podcast.feedUrl); put("title", podcast.title); put("author", podcast.author)
+                    put("artwork", podcast.artwork); put("description", podcast.description)
+                }, SQLiteDatabase.CONFLICT_IGNORE)
+                if (inserted != -1L) added += podcast
+            }
+        }
+        return added
+    }
+
     fun saveFeed(feed: PodcastFeed): Unit {
         val db = writableDatabase
         db.transaction {

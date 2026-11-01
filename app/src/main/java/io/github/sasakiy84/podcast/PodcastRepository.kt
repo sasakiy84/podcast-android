@@ -33,6 +33,31 @@ class PodcastRepository(private val context: Context) {
     suspend fun search(query: String): List<PodcastCandidate> = withContext(Dispatchers.IO) { directory.search(query) }
     suspend fun resolve(url: String): List<PodcastCandidate> = withContext(Dispatchers.IO) { directory.resolve(url) }
 
+    suspend fun importOpml(uri: Uri): OpmlImportResult = withContext(Dispatchers.IO) {
+        val subscriptions = try {
+            val input = context.contentResolver.openInputStream(uri)
+                ?: throw PodcastException("OPML ファイルを開けませんでした。")
+            input.use(PodcastOpml::read)
+        } catch (error: PodcastException) { throw error }
+        catch (_: java.io.IOException) { throw PodcastException("OPML ファイルを開けませんでした。") }
+        catch (_: SecurityException) { throw PodcastException("OPML ファイルにアクセスできませんでした。") }
+        mutex.withLock {
+            val added = store.importSubscriptions(subscriptions.podcasts).size
+            publish()
+            OpmlImportResult(added, subscriptions.skipped + subscriptions.podcasts.size - added)
+        }
+    }
+
+    suspend fun exportOpml(uri: Uri): Unit = withContext(Dispatchers.IO) {
+        val podcasts = mutex.withLock { store.library().podcasts }
+        try {
+            val output = context.contentResolver.openOutputStream(uri, "wt")
+                ?: throw PodcastException("OPML ファイルに保存できませんでした。")
+            output.use { PodcastOpml.write(podcasts, it) }
+        } catch (_: java.io.IOException) { throw PodcastException("OPML ファイルに保存できませんでした。") }
+        catch (_: SecurityException) { throw PodcastException("OPML ファイルにアクセスできませんでした。") }
+    }
+
     suspend fun subscribe(candidate: PodcastCandidate): Unit = withContext(Dispatchers.IO) {
         val feed = directory.fetchFeed(candidate.podcast.feedUrl)
         mutex.withLock { store.saveFeed(feed); publish() }

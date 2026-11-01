@@ -35,6 +35,7 @@ data class PodcastUiState(
     val searchError: String? = null,
     val searched: Boolean = false,
     val refreshing: Boolean = false,
+    val opmlBusy: Boolean = false,
     val busyFeeds: Set<String> = emptySet(),
     val message: String? = null,
     val playback: PlaybackUi = PlaybackUi(),
@@ -156,6 +157,41 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             PodcastAction.Refresh -> if (!state.value.refreshing) viewModelScope.launch { refresh() }.let { }
             PodcastAction.TogglePlayback -> togglePlayback()
             PodcastAction.ClearMessage -> mutableState.update { it.copy(message = null) }
+        }
+    }
+
+    fun importOpml(uri: android.net.Uri): Unit {
+        if (state.value.opmlBusy) return
+        mutableState.update { it.copy(opmlBusy = true) }
+        viewModelScope.launch {
+            var added = 0
+            try {
+                runOperation {
+                    val result = repository.importOpml(uri)
+                    added = result.added
+                    val skipped = result.skipped
+                    val message = when {
+                        added == 0 && skipped == 0 -> "OPML に番組が含まれていません。"
+                        skipped > 0 -> "${added}番組をインポートしました（${skipped}件スキップ）。"
+                        else -> "${added}番組をインポートしました。"
+                    }
+                    mutableState.update { it.copy(message = message) }
+                }
+            } finally { mutableState.update { it.copy(opmlBusy = false) } }
+            if (added > 0 && !state.value.refreshing) refresh()
+        }
+    }
+
+    fun exportOpml(uri: android.net.Uri): Unit {
+        if (state.value.opmlBusy) return
+        mutableState.update { it.copy(opmlBusy = true) }
+        viewModelScope.launch {
+            try {
+                runOperation {
+                    repository.exportOpml(uri)
+                    mutableState.update { it.copy(message = "OPML をエクスポートしました。") }
+                }
+            } finally { mutableState.update { it.copy(opmlBusy = false) } }
         }
     }
 

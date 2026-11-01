@@ -5,6 +5,7 @@ package io.github.sasakiy84.podcast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -36,7 +37,7 @@ internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -
     BackHandler(enabled = queue != null) { selectedId = null }
     LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (queue == null) {
-            item { Button(onClick = { creating = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text("キューを作成") } }
+            item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { TextButton(onClick = { creating = true }) { Icon(Icons.Default.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("キューを作成") } } }
             if (state.library.queues.isEmpty()) item {
                 Text("キューはまだありません", modifier = Modifier.padding(vertical = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -64,7 +65,7 @@ internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -
             }
             item {
                 Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Button(onClick = { action(PodcastAction.PlayQueue(queue.id)) }, enabled = queue.episodeIds.isNotEmpty() && state.playback.connected) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("キューを再生") }
+                    Button(onClick = { action(PodcastAction.PlayQueue(queue.id)) }, shape = RoundedCornerShape(8.dp), enabled = queue.episodeIds.isNotEmpty() && state.playback.connected) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("キューを再生") }
                     TextButton(onClick = { ruleSettings = !ruleSettings }) { Icon(Icons.Default.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("自動追加") }
                 }
             }
@@ -84,7 +85,7 @@ internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -
                         }
                     }
                 }
-                item { OutlinedButton(onClick = { newRule = true }, enabled = state.library.podcasts.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("番組の自動追加を設定") } }
+                item { OutlinedButton(onClick = { newRule = true }, shape = RoundedCornerShape(8.dp), enabled = state.library.podcasts.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("番組の自動追加を設定") } }
                 if (state.library.podcasts.isEmpty()) item { Text("先にポッドキャストを登録してください。", style = MaterialTheme.typography.bodySmall) }
             }
             item { Text("${queue.episodeIds.size} エピソード", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)) }
@@ -111,10 +112,8 @@ internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -
         }
     }
     if (creating || editingQueue != null) QueueNameDialog(editingQueue, { creating = false; editingQueue = null }) { id, name -> action(PodcastAction.SaveQueue(id, name)) }
-    if (deleting && queue != null) AlertDialog(onDismissRequest = { deleting = false }, title = { Text("キューを削除しますか？") },
-        text = { Text("「${queue.name}」と自動追加設定を削除します。購読・再生履歴・保存済みの音声は残ります。") },
-        confirmButton = { TextButton(onClick = { action(PodcastAction.DeleteQueue(queue.id)); deleting = false; selectedId = null }) { Text("削除") } },
-        dismissButton = { TextButton(onClick = { deleting = false }) { Text("キャンセル") } })
+    if (deleting && queue != null) ConfirmationSheet("キューを削除しますか？", "「${queue.name}」と自動追加設定を削除します。番組・音声・履歴は残ります。", "削除",
+        onDismiss = { deleting = false }, onConfirm = { action(PodcastAction.DeleteQueue(queue.id)); deleting = false; selectedId = null })
     if ((newRule || ruleEditor != null) && queue != null) QueueRuleDialog(queue, ruleEditor, state.library, { newRule = false; ruleEditor = null }) { rule, apply -> action(PodcastAction.SaveQueueRule(rule, apply)) }
 }
 
@@ -140,7 +139,7 @@ internal fun QueueMembershipDialog(episode: Episode, library: Library, action: (
             Text(queue.name, modifier = Modifier.weight(1f))
         }
         OutlinedTextField(name, { name = it }, label = { Text("新しいキュー名") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedButton(onClick = { action(PodcastAction.SaveQueue(newId, name.trim(), episode.id)); name = ""; newId = UUID.randomUUID().toString() }, enabled = !completed && name.trim().length in 1..80, modifier = Modifier.fillMaxWidth()) { Text("作成して追加") }
+        TextButton(onClick = { action(PodcastAction.SaveQueue(newId, name.trim(), episode.id)); name = ""; newId = UUID.randomUUID().toString() }, enabled = !completed && name.trim().length in 1..80, modifier = Modifier.fillMaxWidth()) { Text("作成して追加") }
     }
 }
 
@@ -156,7 +155,7 @@ private fun QueueRuleDialog(queue: PlaybackQueue, existing: QueueRule?, library:
     var menu by remember { mutableStateOf(false) }
     QueueFormSheet("番組の自動追加", dismiss, { save(QueueRule(queue.id, feed, include, exclude, all, download, enabled), apply); dismiss() }, feed.isNotBlank()) {
         Box {
-            OutlinedButton(onClick = { menu = true }, enabled = existing == null, modifier = Modifier.fillMaxWidth()) { Text(library.podcasts.firstOrNull { it.feedUrl == feed }?.title ?: "番組を選択", maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            OutlinedButton(onClick = { menu = true }, shape = RoundedCornerShape(8.dp), enabled = existing == null, modifier = Modifier.fillMaxWidth()) { Text(library.podcasts.firstOrNull { it.feedUrl == feed }?.title ?: "番組を選択", maxLines = 2, overflow = TextOverflow.Ellipsis) }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 library.podcasts.forEach { podcast -> DropdownMenuItem(text = { Text(podcast.title) }, onClick = { feed = podcast.feedUrl; menu = false }) }
             }
@@ -173,13 +172,13 @@ private fun QueueRuleDialog(queue: PlaybackQueue, existing: QueueRule?, library:
 
 @Composable
 private fun QueueFormSheet(title: String, dismiss: () -> Unit, save: () -> Unit, saveEnabled: Boolean, saveText: String = "保存", showCancel: Boolean = true, content: @Composable ColumnScope.() -> Unit): Unit {
-    ModalBottomSheet(onDismissRequest = dismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ModalBottomSheet(onDismissRequest = dismiss, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp), sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 if (showCancel) TextButton(onClick = dismiss) { Text("キャンセル") }
-                Button(onClick = save, enabled = saveEnabled) { Text(saveText) }
+                Button(onClick = save, shape = RoundedCornerShape(8.dp), enabled = saveEnabled) { Text(saveText) }
             }
         }
     }
