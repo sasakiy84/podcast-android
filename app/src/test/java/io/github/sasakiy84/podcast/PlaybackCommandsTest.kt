@@ -49,6 +49,14 @@ class PlaybackCommandsTest {
 
     @Test
     fun standaloneReplayResetsCompletionAppliesStartSkipAndLeavesTheQueue(): Unit = runBlocking {
+        repository.store.saveFeed(
+            PodcastFeed(
+                show,
+                (1..1005).map { first.copy(id = "recent-$it", published = it.toLong()) },
+            )
+        )
+        repository.load()
+        assertFalse(repository.library.value.episodes.any { it.id == first.id })
         repository.settings.setOptions(show.feedUrl, PodcastOptions(skipStartSeconds = 45))
         repository.updateProgress(first.id, ListeningProgress(600_000, 600_000, true))
         repository.preferences.edit().putString("active_queue", "news").commit()
@@ -58,6 +66,7 @@ class PlaybackCommandsTest {
         assertTrue(player.playWhenReady)
         assertFalse(repository.store.progress(first.id).completed)
         assertFalse(repository.preferences.contains("active_queue"))
+        assertTrue(repository.library.value.episodes.any { it.id == first.id })
     }
 
     @Test
@@ -83,4 +92,44 @@ class PlaybackCommandsTest {
             assertEquals(0L, player.currentPosition)
             assertTrue(player.playWhenReady)
         }
+
+    @Test
+    fun removingCurrentAudioKeepsTheQueuePositionAndExplicitChapterPolicy(): Unit = runBlocking {
+        repository.download(first)
+        val manager = context.getSystemService(android.app.DownloadManager::class.java)
+        val request =
+            org.robolectric.Shadows.shadowOf(manager)
+                .getRequest(requireNotNull(repository.store.downloadId(first.id)))
+        val shadow =
+            org.robolectric.shadow.api.Shadow.extract<
+                org.robolectric.shadows.ShadowDownloadManager.ShadowRequest
+            >(
+                request
+            )
+        shadow.setStatus(android.app.DownloadManager.STATUS_SUCCESSFUL)
+        val file =
+            java.io.File(
+                context.getExternalFilesDir(android.os.Environment.DIRECTORY_PODCASTS),
+                "${first.id}.audio",
+            )
+        file.parentFile?.mkdirs()
+        file.writeBytes(byteArrayOf(1, 2, 3))
+        repository.load()
+        player.setMediaItems(
+            listOf(
+                first.mediaItem(repository, applyStartSkip = false),
+                second.mediaItem(repository),
+            ),
+            0,
+            123_000,
+        )
+        commands.removeDownload(player, first)
+        assertEquals(2, player.mediaItemCount)
+        assertEquals(first.audioUrl, player.currentMediaItem!!.localConfiguration!!.uri.toString())
+        assertEquals(123_000L, player.currentPosition)
+        assertFalse(player.playWhenReady)
+        assertFalse(player.currentMediaItem!!.mediaMetadata.extras!!.getBoolean("apply_start_skip"))
+        assertFalse(file.exists())
+        assertTrue(repository.store.downloadIds().isEmpty())
+    }
 }

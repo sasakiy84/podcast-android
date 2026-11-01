@@ -6,7 +6,7 @@
 - `PlaybackService` が MediaSession と再生履歴の保存を管理する。キュー反映は `PlaybackQueueSynchronizer`、シークと先頭・末尾スキップは `PlaybackTransport`、速度の追従は `PlaybackSpeedController` に分ける。画面を閉じても再生設定は有効。
 - `PodcastHttp` はHTTP転送・圧縮・文字コード・取得上限、`PodcastDirectory` は検索と共有URLの解決を担当する。
 - `FeedParser` は RSS / Atom と Podlove チャプターをストリーム解析する。`EpisodeContent` は説明文の段落・安全なリンク先と Podcasting 2.0 JSON チャプターを扱い、`ContentText` が選択・コピー可能なリンク付きテキストを描画する。
-- `PodcastStore` は schema 4。更新は `onUpgrade` で既存の購読・キュー・音声参照を保持する。履歴は実際の再生時に記録し、古い版の再生進捗も引き継ぐ。ただし古い版には視聴日時がないため、移行前の履歴は日時不明として新しい記録より後ろに並ぶ。
+- `PodcastStore` は schema 5。更新は `onUpgrade` で既存の購読・キュー・音声参照を保持する。履歴は実際の再生時に記録し、古い版の再生進捗も引き継ぐ。ただし古い版には視聴日時がないため、移行前の履歴は日時不明として新しい記録より後ろに並ぶ。
 
 末尾スキップは次の音声へ移動してから完了を保存する。順序を逆にすると、キューの変更通知でもう一度進むおそれがある。再生済みはすべてのキューから取り除き、お気に入りと履歴は保持する。実際に再生が完了した場合は保存音声と DownloadManager の記録を削除する（末尾スキップも含む）。手動で再生済みにしただけでは削除しない。削除後の再生元は配信URLに戻し、単独再生でも再生できるようにする。
 
@@ -25,3 +25,5 @@
 再生パネルの初期寸法に生のピクセル数を使わない。ミニプレーヤーは64dp（進捗線があれば+2dp）、ナビは80dpとシステム余白で初期化し、パネルの描画後サイズを同じアンカーの計算へ循環させない。折りたたみ済みなら起動時の partialExpand アニメーションを省く。端末密度3の初期各フレームを `PlayerDeviceLayoutTest` で位置と描画ピクセルの両方から検証する。行の補助操作は長押しメニューへ集約し、表示ボタンは再生だけにする。
 
 再生パネルが戻るを処理する条件は微小な展開率でなく、展開要求とSheetStateの現在/移動先の状態で決める。寸法を捕捉するderivedStateOfは密度・余白・ミニパネル高さの変更で更新する。パネルが戻るを処理する間は背後のキュー詳細のBackHandlerを無効にする。各経路の戻り先と確認範囲は [back-navigation-audit.md](back-navigation-audit.md) を参照する。
+
+検索・条件付き更新・取り消し・ドラッグ・ストレージ管理・共有は [library-operations.md](library-operations.md) を参照する。検索と取り消しは `PodcastStore` のトランザクション、HTTP検証は `PodcastHttp` と更新情報テーブル、UIは `Sharing` / `ManagementPage` / `QueueReorderState`、通知は `AppSnackbar` に分ける。

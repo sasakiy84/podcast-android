@@ -4,20 +4,17 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
-import android.view.View
-import android.view.WindowManager
-import android.view.inspector.WindowInspector
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import java.io.File
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
-import java.io.File
 
 /** Opt-in screen catalog for visual review, not an automated image comparison. */
 @RunWith(RobolectricTestRunner::class)
@@ -25,20 +22,104 @@ import java.io.File
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ScreenCapture {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
-    private val directory = File(requireNotNull(System.getProperty("podcast.screenshotDir")), "all-screens")
-    private val titles = listOf("MORNING\nNOTES", "TECH\nTABLE", "WORLD\nNEWS", "DEEP\nBREATH", "ENGLISH", "WEEKLY", "DESIGN", "SCIENCE", "DAILY")
-    private val shows = titles.mapIndexed { i, title ->
-        Podcast("https://example.org/feed/$i", listOf("朝のノート", "技術のテーブル", "世界のニュース", "深呼吸ラジオ", "English Daily", "今週の話", "デザインの時間", "科学の窓", "日々のこと")[i], "音の便り", artwork(title, i), "日々の小さな発見を、ゆっくり話す番組です。毎週、新しいエピソードをお届けします。", website = "https://example.org/show/$i")
-    }
-    private val episodes = listOf("静かな朝のつづき", "小さな習慣を見つける", "技術と暮らしの接点", "世界のニュースを振り返る", "週末のコーヒー", "言葉を学ぶ楽しさ").mapIndexed { i, title ->
-        Episode("episode-$i", shows[if (i < 2) 0 else i - 1].feedUrl, title, "https://example.org/$i.mp3", "コーヒーを淹れながら、今日の予定を考えます。\n\n今回のテーマは、毎日の暮らしにある小さな発見。最近の出来事や読んだ本についても話しています。", 1_793_491_200_000L - i * 86_400_000L, (30 + i * 7) * 60_000L, chapters = if (i == 0) listOf(EpisodeChapter(0, "はじめに"), EpisodeChapter(222_000, "暮らしと習慣"), EpisodeChapter(600_000, "今日の本")) else emptyList())
-    }
-    private val queues = listOf(PlaybackQueue("news", "ニュース", episodes.filterIndexed { i, _ -> i != 1 }.take(3).map { it.id }), PlaybackQueue("tech", "技術", listOf(episodes[2].id)), PlaybackQueue("english", "英語学習"))
-    private val library = Library(shows, episodes,
-        progress = mapOf(episodes[0].id to ListeningProgress(120_000, episodes[0].durationMs), episodes[1].id to ListeningProgress(episodes[1].durationMs, episodes[1].durationMs, true)),
-        downloads = mapOf(episodes[0].id to EpisodeDownload(1, DownloadStatus.Complete, 100), episodes[2].id to EpisodeDownload(2, DownloadStatus.Running, 42)),
-        queues = queues, queueRules = listOf(QueueRule("news", shows[0].feedUrl, "朝,暮らし", "広告", autoDownload = true)), autoDownloadFeeds = setOf(shows[0].feedUrl))
-    private val base = PodcastUiState(library = library, playback = PlaybackUi(episodes[0].id, true, positionMs = 120_000, durationMs = episodes[0].durationMs, connected = true))
+    private val directory =
+        File(requireNotNull(System.getProperty("podcast.screenshotDir")), "all-screens")
+    private val titles =
+        listOf(
+            "MORNING\nNOTES",
+            "TECH\nTABLE",
+            "WORLD\nNEWS",
+            "DEEP\nBREATH",
+            "ENGLISH",
+            "WEEKLY",
+            "DESIGN",
+            "SCIENCE",
+            "DAILY",
+        )
+    private val shows =
+        titles.mapIndexed { i, title ->
+            Podcast(
+                "https://example.org/feed/$i",
+                listOf(
+                    "朝のノート",
+                    "技術のテーブル",
+                    "世界のニュース",
+                    "深呼吸ラジオ",
+                    "English Daily",
+                    "今週の話",
+                    "デザインの時間",
+                    "科学の窓",
+                    "日々のこと",
+                )[i],
+                "音の便り",
+                artwork(title, i),
+                "日々の小さな発見を、ゆっくり話す番組です。毎週、新しいエピソードをお届けします。",
+                website = "https://example.org/show/$i",
+            )
+        }
+    private val episodes =
+        listOf("静かな朝のつづき", "小さな習慣を見つける", "技術と暮らしの接点", "世界のニュースを振り返る", "週末のコーヒー", "言葉を学ぶ楽しさ")
+            .mapIndexed { i, title ->
+                Episode(
+                    "episode-$i",
+                    shows[if (i < 2) 0 else i - 1].feedUrl,
+                    title,
+                    "https://example.org/$i.mp3",
+                    "コーヒーを淹れながら、今日の予定を考えます。\n\n今回のテーマは、毎日の暮らしにある小さな発見。最近の出来事や読んだ本についても話しています。",
+                    1_793_491_200_000L - i * 86_400_000L,
+                    (30 + i * 7) * 60_000L,
+                    chapters =
+                        if (i == 0)
+                            listOf(
+                                EpisodeChapter(0, "はじめに"),
+                                EpisodeChapter(222_000, "暮らしと習慣"),
+                                EpisodeChapter(600_000, "今日の本"),
+                            )
+                        else emptyList(),
+                )
+            }
+    private val queues =
+        listOf(
+            PlaybackQueue(
+                "news",
+                "ニュース",
+                episodes.filterIndexed { i, _ -> i != 1 }.take(3).map { it.id },
+            ),
+            PlaybackQueue("tech", "技術", listOf(episodes[2].id)),
+            PlaybackQueue("english", "英語学習"),
+        )
+    private val library =
+        Library(
+            shows,
+            episodes,
+            progress =
+                mapOf(
+                    episodes[0].id to ListeningProgress(120_000, episodes[0].durationMs),
+                    episodes[1].id to
+                        ListeningProgress(episodes[1].durationMs, episodes[1].durationMs, true),
+                ),
+            downloads =
+                mapOf(
+                    episodes[0].id to EpisodeDownload(1, DownloadStatus.Complete, 100),
+                    episodes[2].id to EpisodeDownload(2, DownloadStatus.Running, 42),
+                ),
+            queues = queues,
+            queueRules =
+                listOf(QueueRule("news", shows[0].feedUrl, "朝,暮らし", "広告", autoDownload = true)),
+            autoDownloadFeeds = setOf(shows[0].feedUrl),
+        )
+    private val base =
+        PodcastUiState(
+            library = library,
+            playback =
+                PlaybackUi(
+                    episodes[0].id,
+                    true,
+                    positionMs = 120_000,
+                    durationMs = episodes[0].durationMs,
+                    connected = true,
+                ),
+        )
     private val ui = mutableStateOf(base)
 
     @Test fun captureLightScreens(): Unit = captureAll("light")
@@ -47,16 +128,41 @@ class ScreenCapture {
     @Config(qualifiers = "ja-w360dp-h800dp-night")
     fun captureDarkScreens(): Unit = captureAll("dark")
 
-    @Test fun captureSettingsLight(): Unit { compose.setContent { SettingsPage(base.copy(wifiOnly = true, refreshHours = 6), {}, {}, {}, {}) }; screenshot("light", "49-settings") }
-    @Test @Config(qualifiers = "ja-w360dp-h800dp-night") fun captureSettingsDark(): Unit { compose.setContent { SettingsPage(base.copy(wifiOnly = true, refreshHours = 6), {}, {}, {}, {}) }; screenshot("dark", "49-settings") }
+    @Test
+    fun captureSettingsLight(): Unit {
+        compose.setContent {
+            SettingsPage(base.copy(wifiOnly = true, refreshHours = 6), {}, {}, {}, {})
+        }
+        screenshot("light", "49-settings")
+    }
+
+    @Test
+    @Config(qualifiers = "ja-w360dp-h800dp-night")
+    fun captureSettingsDark(): Unit {
+        compose.setContent {
+            SettingsPage(base.copy(wifiOnly = true, refreshHours = 6), {}, {}, {}, {})
+        }
+        screenshot("dark", "49-settings")
+    }
 
     private fun captureAll(theme: String): Unit {
         compose.setContent { PodcastApp(ui.value) }
         fun shot(name: String): Unit = screenshot(theme, name)
-        fun tab(name: String): Unit { compose.onNodeWithContentDescription("タブ: $name").performClick() }
-        fun text(label: String): Unit { compose.onNode(hasText(label) and !hasContentDescription("エピソード詳細:", substring = true)).performClick() }
-        fun icon(label: String): Unit { compose.onNodeWithContentDescription(label).performClick() }
-        fun replace(value: PodcastUiState): Unit { compose.runOnIdle { ui.value = value }; compose.waitForIdle() }
+        fun tab(name: String): Unit {
+            compose.onNodeWithContentDescription("タブ: $name").performClick()
+        }
+        fun text(label: String): Unit {
+            compose
+                .onNode(hasText(label) and !hasContentDescription("エピソード詳細:", substring = true))
+                .performClick()
+        }
+        fun icon(label: String): Unit {
+            compose.onNodeWithContentDescription(label).performClick()
+        }
+        fun replace(value: PodcastUiState): Unit {
+            compose.runOnIdle { ui.value = value }
+            compose.waitForIdle()
+        }
 
         shot("01-library")
         replace(base.copy(playback = PlaybackUi()))
@@ -76,7 +182,22 @@ class ScreenCapture {
         text("設定")
         icon(shows[0].title)
         shot("02-podcast-details")
-        replace(base.copy(library = library.copy(podcasts = listOf(shows[0].copy(description = (1..12).joinToString("\n") { "番組の紹介 $it。日々の暮らしについてゆっくり話します。" })) + shows.drop(1))))
+        replace(
+            base.copy(
+                library =
+                    library.copy(
+                        podcasts =
+                            listOf(
+                                shows[0].copy(
+                                    description =
+                                        (1..12).joinToString("\n") {
+                                            "番組の紹介 $it。日々の暮らしについてゆっくり話します。"
+                                        }
+                                )
+                            ) + shows.drop(1)
+                    )
+            )
+        )
         shot("50-description-collapsed")
         text("全文を表示")
         shot("51-description-expanded")
@@ -103,19 +224,32 @@ class ScreenCapture {
         shot("05-unplayed")
         text("ダウンロード")
         shot("06-downloads")
-        replace(base.copy(library = library.copy(favorites = setOf(episodes[0].id, episodes[2].id))))
+        replace(
+            base.copy(library = library.copy(favorites = setOf(episodes[0].id, episodes[2].id)))
+        )
         compose.onNodeWithText("お気に入り").performScrollTo().performClick()
         shot("40-favorites")
-        replace(base.copy(library = library.copy(historyIds = listOf(episodes[2].id, episodes[0].id, episodes[1].id))))
+        replace(
+            base.copy(
+                library =
+                    library.copy(
+                        historyIds = listOf(episodes[2].id, episodes[0].id, episodes[1].id)
+                    )
+            )
+        )
         compose.onNodeWithTag("episode-filters").performScrollToNode(hasText("再生履歴"))
         text("再生履歴")
         shot("47-listening-history")
         compose.onNodeWithTag("episode-filters").performScrollToNode(hasText("ダウンロード"))
         compose.onNodeWithText("ダウンロード").performClick()
         replace(base)
-        compose.onNodeWithContentDescription("エピソード詳細: ${episodes[0].title}").performTouchInput { swipeLeft() }
+        compose.onNodeWithContentDescription("エピソード詳細: ${episodes[0].title}").performTouchInput {
+            swipeLeft()
+        }
         shot("41-swipe-left")
-        compose.onNodeWithContentDescription("エピソード詳細: ${episodes[2].title}").performTouchInput { swipeRight() }
+        compose.onNodeWithContentDescription("エピソード詳細: ${episodes[2].title}").performTouchInput {
+            swipeRight()
+        }
         shot("42-swipe-right")
         icon("キューに追加: ${episodes[2].title}")
         icon("エピソード詳細: ${episodes[0].title}")
@@ -143,7 +277,9 @@ class ScreenCapture {
         text("キューを削除")
         shot("13-delete-queue-confirmation")
         text("キャンセル")
-        compose.onNodeWithContentDescription("エピソード詳細: ${episodes[0].title}").performTouchInput { longClick() }
+        compose.onNodeWithContentDescription("エピソード詳細: ${episodes[0].title}").performTouchInput {
+            longClick()
+        }
         shot("14-queue-episode-menu")
         text("下へ移動")
         icon("キューのメニュー")
@@ -192,12 +328,31 @@ class ScreenCapture {
         tab("検索")
         shot("26-search")
         compose.onNodeWithText("番組名・キーワード").performTextInput("暮らし")
-        replace(base.copy(searched = true, results = shows.take(3).map { PodcastCandidate(it.copy(feedUrl = "${it.feedUrl}/found")) }))
+        replace(
+            base.copy(
+                searched = true,
+                results =
+                    shows.take(3).map { PodcastCandidate(it.copy(feedUrl = "${it.feedUrl}/found")) },
+            )
+        )
         shot("27-search-results")
         text("URLから登録")
-        compose.onNodeWithText("番組URL・RSS URL").performTextReplacement("https://open.spotify.com/show/example")
+        compose
+            .onNodeWithText("番組URL・RSS URL")
+            .performTextReplacement("https://open.spotify.com/show/example")
         shot("28-url-input")
-        replace(base.copy(searched = true, results = listOf(PodcastCandidate(shows[0].copy(feedUrl = "${shows[0].feedUrl}/found"), "Spotify の番組候補 · Apple Podcasts"))))
+        replace(
+            base.copy(
+                searched = true,
+                results =
+                    listOf(
+                        PodcastCandidate(
+                            shows[0].copy(feedUrl = "${shows[0].feedUrl}/found"),
+                            "Spotify の番組候補 · Apple Podcasts",
+                        )
+                    ),
+            )
+        )
         shot("29-url-candidate")
         replace(base.copy(searching = true))
         shot("30-search-loading")
@@ -222,9 +377,24 @@ class ScreenCapture {
         check(file.parentFile!!.mkdirs() || file.parentFile!!.isDirectory)
         val bitmap = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        canvas.drawColor(listOf(0xFF123954.toInt(), 0xFF15303F.toInt(), 0xFFAA262C.toInt(), 0xFFE8AD60.toInt(), 0xFF40855E.toInt())[index % 5])
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE; textSize = 52f; typeface = Typeface.DEFAULT_BOLD }
-        title.split('\n').forEachIndexed { i, line -> canvas.drawText(line, 30f, 150f + i * 62f, paint) }
+        canvas.drawColor(
+            listOf(
+                0xFF123954.toInt(),
+                0xFF15303F.toInt(),
+                0xFFAA262C.toInt(),
+                0xFFE8AD60.toInt(),
+                0xFF40855E.toInt(),
+            )[index % 5]
+        )
+        val paint =
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.WHITE
+                textSize = 52f
+                typeface = Typeface.DEFAULT_BOLD
+            }
+        title.split('\n').forEachIndexed { i, line ->
+            canvas.drawText(line, 30f, 150f + i * 62f, paint)
+        }
         paint.alpha = 90
         paint.strokeWidth = 3f
         canvas.drawLine(30f, 320f, 370f, 320f, paint)
@@ -238,25 +408,6 @@ class ScreenCapture {
         compose.waitForIdle()
         val target = File(directory, "$theme/$name.png")
         check(target.parentFile!!.mkdirs() || target.parentFile!!.isDirectory)
-        compose.runOnIdle {
-            val decor = compose.activity.window.decorView
-            val bitmap = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-            // Include popup windows as well as dialogs so menus are captured, too.
-            for (view in WindowInspector.getGlobalWindowViews()) {
-                if (!view.isShown || view.windowVisibility != View.VISIBLE || view.width == 0 || view.height == 0) continue
-                val params = view.layoutParams as? WindowManager.LayoutParams
-                if (params != null && params.flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND != 0) {
-                    canvas.drawColor(android.graphics.Color.argb((params.dimAmount * 255).toInt(), 0, 0, 0))
-                }
-                val location = IntArray(2)
-                view.getLocationOnScreen(location)
-                canvas.save()
-                canvas.translate(location[0].toFloat(), location[1].toFloat())
-                view.draw(canvas)
-                canvas.restore()
-            }
-            target.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
-        }
+        compose.runOnIdle { captureScreen(compose.activity, target) }
     }
 }

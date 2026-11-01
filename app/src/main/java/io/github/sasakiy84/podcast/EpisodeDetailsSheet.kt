@@ -47,6 +47,7 @@ internal fun EpisodeDetailsSheet(
                         style = MaterialTheme.typography.headlineSmall,
                     )
                     EpisodeCopyButton(episode, state)
+                    EpisodeShareButton(episode, state)
                     FavoriteButton(episode.id, state, onAction)
                 }
             }

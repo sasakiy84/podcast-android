@@ -67,6 +67,40 @@ internal class PlaybackCommands(
             )
             player.prepare()
             player.play()
+            repository.preferences.edit { putString("current", episode.id) }
+            repository.load()
+        }
+    }
+
+    suspend fun removeDownload(player: Player?, episode: Episode): Unit {
+        val previous = player?.currentMediaItem
+        val replaceSource =
+            previous?.mediaId == episode.id &&
+                state().library.downloads[episode.id]?.status == DownloadStatus.Complete
+        val position = player?.currentPosition?.coerceAtLeast(0) ?: 0
+        val playing = player?.playWhenReady == true
+        val prepared =
+            player?.playbackState?.let { it != Player.STATE_IDLE && it != Player.STATE_ENDED } ==
+                true
+        repository.removeDownload(episode)
+        if (replaceSource && player != null && player.currentMediaItem?.mediaId == episode.id) {
+            val updated =
+                episode.mediaItem(
+                    repository,
+                    applyStartSkip =
+                        previous?.mediaMetadata?.extras?.getBoolean("apply_start_skip", true) !=
+                            false,
+                )
+            // The service may already have replaced a paused item's source on the library update.
+            if (
+                player.currentMediaItem?.localConfiguration?.uri != updated.localConfiguration?.uri
+            ) {
+                val index = player.currentMediaItemIndex
+                player.replaceMediaItem(index, updated)
+                player.seekTo(index, position)
+                if (prepared) player.prepare()
+                player.playWhenReady = playing
+            }
         }
     }
 

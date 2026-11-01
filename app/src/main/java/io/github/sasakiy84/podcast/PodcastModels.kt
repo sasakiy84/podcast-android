@@ -23,17 +23,54 @@ data class Episode(
     val artwork: String = "",
     val chapters: List<EpisodeChapter> = emptyList(),
     val chaptersUrl: String = "",
+    val webUrl: String = "",
 )
 
-data class EpisodeChapter(val startMs: Long, val title: String, val url: String = "", val image: String = "")
-data class PodcastOptions(val notifications: Boolean = false, val skipStartSeconds: Int = 0, val skipEndSeconds: Int = 0)
+data class EpisodeChapter(
+    val startMs: Long,
+    val title: String,
+    val url: String = "",
+    val image: String = "",
+)
+
+data class PodcastOptions(
+    val notifications: Boolean = false,
+    val skipStartSeconds: Int = 0,
+    val skipEndSeconds: Int = 0,
+)
 
 data class PodcastFeed(val podcast: Podcast, val episodes: List<Episode>)
+
 data class PodcastCandidate(val podcast: Podcast, val source: String = "Apple Podcasts")
-data class ListeningProgress(val positionMs: Long = 0, val durationMs: Long = 0, val completed: Boolean = false)
-enum class DownloadStatus { Waiting, Running, Complete, Failed }
-data class EpisodeDownload(val managerId: Long, val status: DownloadStatus, val percent: Int = 0)
-data class PlaybackQueue(val id: String, val name: String, val episodeIds: List<String> = emptyList())
+
+data class ListeningProgress(
+    val positionMs: Long = 0,
+    val durationMs: Long = 0,
+    val completed: Boolean = false,
+)
+
+enum class DownloadStatus {
+    Waiting,
+    Running,
+    Complete,
+    Failed,
+}
+
+data class EpisodeDownload(
+    val managerId: Long,
+    val status: DownloadStatus,
+    val percent: Int = 0,
+    val downloadedBytes: Long = 0,
+    val totalBytes: Long = -1,
+    val reason: String = "",
+)
+
+data class PlaybackQueue(
+    val id: String,
+    val name: String,
+    val episodeIds: List<String> = emptyList(),
+)
+
 data class QueueRule(
     val queueId: String,
     val feedUrl: String,
@@ -48,14 +85,24 @@ data class QueueRule(
         val text = normalize("${episode.title}\n${episode.description}")
         val required = words(includeWords)
         if (words(excludeWords).any(text::contains)) return false
-        return required.isEmpty() || if (matchAll) required.all(text::contains) else required.any(text::contains)
+        return required.isEmpty() ||
+            if (matchAll) required.all(text::contains) else required.any(text::contains)
     }
 
     companion object {
-        private fun normalize(value: String): String = java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFKC).lowercase(java.util.Locale.ROOT)
-        private fun words(value: String): List<String> = value.split(',', '，', '、', '\n').map { normalize(it.trim()) }.filter { it.isNotEmpty() }.distinct()
+        private fun normalize(value: String): String =
+            java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFKC)
+                .lowercase(java.util.Locale.ROOT)
+
+        private fun words(value: String): List<String> =
+            value
+                .split(',', '，', '、', '\n')
+                .map { normalize(it.trim()) }
+                .filter { it.isNotEmpty() }
+                .distinct()
     }
 }
+
 data class Library(
     val podcasts: List<Podcast> = emptyList(),
     val episodes: List<Episode> = emptyList(),
@@ -70,21 +117,31 @@ data class Library(
     val hasMoreEpisodes: Boolean = false,
     val historyIds: List<String> = emptyList(),
     val hasMoreHistory: Boolean = false,
+    val feedUpdates: Map<String, FeedUpdateStatus> = emptyMap(),
 )
 
 class PodcastException(message: String) : java.io.IOException(message)
 
-fun stableId(value: String): String = MessageDigest.getInstance("SHA-256")
-    .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+fun stableId(value: String): String =
+    MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).joinToString(
+        ""
+    ) {
+        "%02x".format(it)
+    }
 
 fun podcastUrl(input: String): URI {
     val value = input.trim()
-    val uri = try {
-        URI(if (value.contains("://")) value else "https://$value")
-    } catch (_: java.net.URISyntaxException) {
-        throw PodcastException("URL の形式を確認してください。")
-    }
-    if (uri.scheme?.lowercase() !in listOf("http", "https") || uri.host.isNullOrBlank() || uri.userInfo != null) {
+    val uri =
+        try {
+            URI(if (value.contains("://")) value else "https://$value")
+        } catch (_: java.net.URISyntaxException) {
+            throw PodcastException("URL の形式を確認してください。")
+        }
+    if (
+        uri.scheme?.lowercase() !in listOf("http", "https") ||
+            uri.host.isNullOrBlank() ||
+            uri.userInfo != null
+    ) {
         throw PodcastException("http または https の番組URL・RSS URLを入力してください。")
     }
     return uri
@@ -92,7 +149,8 @@ fun podcastUrl(input: String): URI {
 
 fun formatTime(milliseconds: Long): String {
     val seconds = milliseconds.coerceAtLeast(0) / 1000
-    return if (seconds >= 3600) "%d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60)
+    return if (seconds >= 3600)
+        "%d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60)
     else "%d:%02d".format(seconds / 60, seconds % 60)
 }
 

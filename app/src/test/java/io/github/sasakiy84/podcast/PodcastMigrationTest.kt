@@ -14,7 +14,7 @@ class PodcastMigrationTest {
     @Test
     fun releasedDatabaseVersionsPreserveLocalDataOnUpgrade(): Unit {
         val context = RuntimeEnvironment.getApplication()
-        for (version in 1..3) {
+        for (version in 1..4) {
             val name = "migration-v$version.db"
             context.deleteDatabase(name)
             val sql =
@@ -41,7 +41,18 @@ class PodcastMigrationTest {
                     assertEquals(source, 500L, store.progress("one").positionMs)
                     assertEquals(source, 42L, store.downloadId("one"))
                     assertEquals(source, listOf("one"), library.historyIds)
-                    assertTrue(source, store.episode("one")!!.chapters.isEmpty())
+                    assertEquals(source, "", store.episode("one")!!.webUrl)
+                    assertEquals(
+                        source,
+                        if (version >= 4) listOf(EpisodeChapter(0, "Intro"))
+                        else emptyList<EpisodeChapter>(),
+                        store.episode("one")!!.chapters,
+                    )
+                    assertEquals(
+                        source,
+                        FeedValidators(),
+                        store.feedValidators("https://example.org/rss"),
+                    )
                     if (version >= 2) {
                         assertEquals(source, listOf("one"), library.queues.single().episodeIds)
                         assertEquals(

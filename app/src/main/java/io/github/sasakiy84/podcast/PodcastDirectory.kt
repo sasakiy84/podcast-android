@@ -26,6 +26,10 @@ class PodcastDirectory(private val request: ((String) -> WebResponse)? = null) {
         return FeedParser.parse(response.body, podcastUrl(url).toASCIIString(), response.url)
     }
 
+    fun fetchFeed(url: String, validators: FeedValidators): FeedFetchResult =
+        if (request == null) http.fetchFeed(url, validators)
+        else FeedFetchResult(fetchFeed(url), FeedValidators())
+
     fun resolve(input: String): List<PodcastCandidate> {
         val uri = podcastUrl(input)
         if (

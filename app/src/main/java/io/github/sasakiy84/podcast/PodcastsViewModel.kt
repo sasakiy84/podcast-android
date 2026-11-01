@@ -25,6 +25,12 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
     val state: StateFlow<PodcastUiState> = mutableState
     private var controller: MediaController? = null
     private val playbackCommands = PlaybackCommands(repository, { state.value }, ::launchOperation)
+    private var episodeSearchJob: Job? = null
+    private var episodeSearchGeneration = 0L
+    private var episodeSearchActive = false
+    private var episodeSearchLimit = 150
+    private var pendingUndo: Pair<UndoNotice, LibraryUndo>? = null
+    private var undoTimer: Job? = null
     private var searchJob: Job? = null
     private val podcastLoads = mutableSetOf<String>()
     private var searchGeneration: Long = 0
@@ -108,6 +114,64 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
 
     fun dispatch(action: PodcastAction): Unit {
         when (action) {
+            is PodcastAction.SearchEpisodes -> searchEpisodes(action.query, action.filter)
+            PodcastAction.SuspendEpisodeSearch -> {
+                episodeSearchActive = false
+                episodeSearchJob?.cancel()
+            }
+            PodcastAction.MoreSearchEpisodes -> {
+                if (
+                    !state.value.episodeSearch.loading && state.value.episodeSearch.result.hasMore
+                ) {
+                    episodeSearchLimit += 150
+                    searchEpisodes(
+                        state.value.episodeSearch.query,
+                        state.value.episodeSearch.filter,
+                        refresh = true,
+                    )
+                }
+            }
+            is PodcastAction.PlaceQueueEpisode ->
+                launchOperation {
+                    repository.placeQueueEpisode(action.queueId, action.episodeId, action.beforeId)
+                }
+            is PodcastAction.Undo ->
+                launchOperation {
+                    val undo =
+                        pendingUndo?.takeIf {
+                            it.first.id == action.id &&
+                                android.os.SystemClock.elapsedRealtime() < it.first.expiresAt
+                        } ?: return@launchOperation
+                    clearUndo(action.id)
+                    val changed = repository.undo(undo.second)
+                    mutableState.update {
+                        it.copy(message = if (changed) "元に戻しました。" else "再生状態などが変わったため取り消せませんでした。")
+                    }
+                }
+            is PodcastAction.DismissUndo -> clearUndo(action.id)
+            is PodcastAction.RetryFeed -> retryFeed(action.feedUrl)
+            is PodcastAction.RetryDownload ->
+                launchOperation {
+                    repository.retryDownload(action.episode)
+                    loadManagement()
+                }
+            PodcastAction.LoadManagement -> loadManagement()
+            PodcastAction.ClearArtworkCache ->
+                launchOperation {
+                    repository.clearArtworkCache()
+                    loadManagement()
+                }
+            PodcastAction.RemoveCompletedDownloads ->
+                launchOperation {
+                    val library = state.value.library
+                    library.episodes
+                        .filter {
+                            it.id in library.downloads && library.progress[it.id]?.completed == true
+                        }
+                        .forEach { playbackCommands.removeDownload(controller, it) }
+                    loadManagement()
+                }
+
             is PodcastAction.QuickQueue ->
                 launchOperation {
                     repository.quickQueue(action.episodeId)
@@ -189,7 +253,12 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             is PodcastAction.DeleteQueue -> launchOperation { repository.deleteQueue(action.id) }
             is PodcastAction.QueueMembership ->
                 launchOperation {
-                    repository.setQueueMembership(action.queueId, action.episodeId, action.included)
+                    if (action.included)
+                        repository.setQueueMembership(action.queueId, action.episodeId, true)
+                    else
+                        repository.removeFromQueueWithUndo(action.queueId, action.episodeId)?.let {
+                            offerUndo(it, "キューから外しました。")
+                        }
                 }
             is PodcastAction.MoveQueueEpisode ->
                 launchOperation {
@@ -279,6 +348,8 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
                             )
                             player.prepare()
                             player.play()
+                            repository.preferences.edit { putString("current", action.episode.id) }
+                            repository.load()
                         }
                     }
                 }
@@ -286,47 +357,127 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             PodcastAction.LoadMoreEpisodes -> launchOperation { repository.loadMoreEpisodes() }
             is PodcastAction.Download -> launchOperation { repository.download(action.episode) }
             is PodcastAction.RemoveDownload ->
-                viewModelScope
-                    .launch {
-                        runOperation {
-                            val player = controller
-                            val replaceSource =
-                                player?.currentMediaItem?.mediaId == action.episode.id &&
-                                    state.value.library.downloads[action.episode.id]?.status ==
-                                        DownloadStatus.Complete
-                            val position = player?.currentPosition ?: 0
-                            val playing = player?.playWhenReady == true
-                            repository.removeDownload(action.episode)
-                            if (replaceSource) {
-                                player.setMediaItem(action.episode.mediaItem(repository), position)
-                                player.prepare()
-                                player.playWhenReady = playing
-                            }
-                        }
-                    }
-                    .let {}
+                launchOperation {
+                    playbackCommands.removeDownload(controller, action.episode)
+                    if (state.value.management != null) loadManagement()
+                }
             is PodcastAction.MarkPlayed ->
-                viewModelScope
-                    .launch {
-                        val old =
-                            state.value.library.progress[action.episode.id] ?: ListeningProgress()
-                        runOperation {
-                            repository.updateProgress(
-                                action.episode.id,
-                                old.copy(
-                                    completed = action.completed,
-                                    positionMs = if (action.completed) old.durationMs else 0,
-                                ),
-                                resetCompletion = true,
-                            )
-                        }
+                launchOperation {
+                    repository.markPlayedWithUndo(action.episode.id, action.completed)?.let {
+                        offerUndo(it, if (action.completed) "再生済みにしました。" else "未再生に戻しました。")
                     }
-                    .let {}
+                }
             PodcastAction.Refresh ->
                 if (!state.value.refreshing) viewModelScope.launch { refresh() }.let {}
             PodcastAction.TogglePlayback -> controller?.let(playbackCommands::toggle) ?: Unit
             PodcastAction.ClearMessage -> mutableState.update { it.copy(message = null) }
         }
+    }
+
+    private fun offerUndo(change: LibraryUndo, message: String): Unit {
+        val notice =
+            UndoNotice(
+                java.util.UUID.randomUUID().toString(),
+                message,
+                android.os.SystemClock.elapsedRealtime() + 10_000,
+            )
+        undoTimer?.cancel()
+        pendingUndo = notice to change
+        mutableState.update { it.copy(undo = notice, message = null) }
+        undoTimer =
+            viewModelScope.launch {
+                delay(10_000)
+                clearUndo(notice.id)
+            }
+    }
+
+    private fun clearUndo(id: String): Unit {
+        if (pendingUndo?.first?.id == id) {
+            pendingUndo = null
+            mutableState.update { it.copy(undo = null) }
+        }
+    }
+
+    private fun retryFeed(feed: String): Unit {
+        if (feed in state.value.busyFeeds || state.value.refreshing) return
+        mutableState.update { it.copy(busyFeeds = it.busyFeeds + feed) }
+        viewModelScope.launch {
+            try {
+                runOperation {
+                    repository.refresh(feed)
+                    loadManagement()
+                }
+            } finally {
+                mutableState.update { it.copy(busyFeeds = it.busyFeeds - feed) }
+            }
+        }
+    }
+
+    private fun loadManagement(): Unit {
+        if (state.value.managementLoading) return
+        mutableState.update { it.copy(managementLoading = true, managementError = null) }
+        viewModelScope.launch {
+            try {
+                val failure = runOperation {
+                    val snapshot = repository.management()
+                    mutableState.update { it.copy(management = snapshot) }
+                }
+                if (failure != null) mutableState.update { it.copy(managementError = failure) }
+            } finally {
+                mutableState.update { it.copy(managementLoading = false) }
+            }
+        }
+    }
+
+    private fun searchEpisodes(
+        query: String,
+        filter: EpisodeFilter,
+        refresh: Boolean = false,
+    ): Unit {
+        val old = state.value.episodeSearch
+        val resume = !episodeSearchActive
+        episodeSearchActive = true
+        val clean = query.take(200)
+        if (!refresh && !resume && old.query == clean && old.filter == filter && old.error == null)
+            return
+        if (old.query != clean || old.filter != filter) episodeSearchLimit = 150
+        val generation = ++episodeSearchGeneration
+        episodeSearchJob?.cancel()
+        val changed = old.query != clean || old.filter != filter
+        mutableState.update {
+            it.copy(
+                episodeSearch =
+                    EpisodeSearchState(
+                        clean,
+                        filter,
+                        if (changed) EpisodeSearchResult() else old.result,
+                        clean.isNotBlank(),
+                    )
+            )
+        }
+        if (clean.isBlank()) return
+        episodeSearchJob =
+            viewModelScope.launch {
+                try {
+                    if (!refresh) delay(300)
+                    val failure = runOperation {
+                        val result = repository.searchEpisodes(clean, filter, episodeSearchLimit)
+                        if (generation == episodeSearchGeneration)
+                            mutableState.update {
+                                it.copy(episodeSearch = it.episodeSearch.copy(result = result))
+                            }
+                    }
+                    if (failure != null && generation == episodeSearchGeneration)
+                        mutableState.update {
+                            it.copy(episodeSearch = it.episodeSearch.copy(error = failure))
+                        }
+                } finally {
+                    if (generation == episodeSearchGeneration)
+                        mutableState.update {
+                            it.copy(episodeSearch = it.episodeSearch.copy(loading = false))
+                        }
+                }
+            }
     }
 
     fun importOpml(uri: android.net.Uri): Unit {

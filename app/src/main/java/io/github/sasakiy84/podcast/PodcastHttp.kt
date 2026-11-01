@@ -23,27 +23,48 @@ class PodcastHttp {
         }
 
     fun fetchFeed(input: String): PodcastFeed =
-        response(input) { connection, finalUrl ->
-            decoded(connection).use { raw ->
-                val limited = LimitedFeedStream(raw).buffered()
-                limited.mark(512)
-                val prefix = limited.readNBytes(256)
-                limited.reset()
-                val reader =
-                    java.io.PushbackReader(
-                        java.io.InputStreamReader(
-                            limited,
-                            charset(connection.contentType.orEmpty(), prefix),
-                        ),
-                        1,
-                    )
-                val first = reader.read()
-                if (first != -1 && first != 0xFEFF) reader.unread(first)
-                FeedParser.parse(
-                    reader,
-                    podcastUrl(input).toASCIIString(),
+        requireNotNull(fetchFeed(input, FeedValidators()).feed)
+
+    fun fetchFeed(input: String, validators: FeedValidators): FeedFetchResult =
+        response(input, validators) { connection, finalUrl ->
+            val fresh =
+                FeedValidators(
+                    connection.getHeaderField("ETag").orEmpty(),
+                    connection.getHeaderField("Last-Modified").orEmpty(),
                     finalUrl.toASCIIString(),
                 )
+            if (connection.responseCode == HttpURLConnection.HTTP_NOT_MODIFIED) {
+                FeedFetchResult(
+                    null,
+                    fresh.copy(
+                        etag = fresh.etag.ifBlank { validators.etag },
+                        lastModified = fresh.lastModified.ifBlank { validators.lastModified },
+                    ),
+                )
+            } else {
+                val feed =
+                    decoded(connection).use { raw ->
+                        val limited = LimitedFeedStream(raw).buffered()
+                        limited.mark(512)
+                        val prefix = limited.readNBytes(256)
+                        limited.reset()
+                        val reader =
+                            java.io.PushbackReader(
+                                java.io.InputStreamReader(
+                                    limited,
+                                    charset(connection.contentType.orEmpty(), prefix),
+                                ),
+                                1,
+                            )
+                        val first = reader.read()
+                        if (first != -1 && first != 0xFEFF) reader.unread(first)
+                        FeedParser.parse(
+                            reader,
+                            podcastUrl(input).toASCIIString(),
+                            finalUrl.toASCIIString(),
+                        )
+                    }
+                FeedFetchResult(feed, fresh)
             }
         }
 
@@ -81,7 +102,11 @@ class PodcastHttp {
         }
     }
 
-    private fun <T> response(input: String, read: (HttpURLConnection, URI) -> T): T {
+    private fun <T> response(
+        input: String,
+        validators: FeedValidators? = null,
+        read: (HttpURLConnection, URI) -> T,
+    ): T {
         var uri = podcastUrl(input)
         repeat(8) {
             val connection = uri.toURL().openConnection() as HttpURLConnection
@@ -98,6 +123,19 @@ class PodcastHttp {
                     "application/rss+xml, application/atom+xml, application/json, text/html, */*",
                 )
                 connection.setRequestProperty("Accept-Encoding", "gzip")
+                val validate = validators != null && validators.responseUrl == uri.toASCIIString()
+                if (validate) {
+                    validators!!
+                        .etag
+                        .takeIf { it.isNotBlank() }
+                        ?.let { connection.setRequestProperty("If-None-Match", it) }
+                    validators.lastModified
+                        .takeIf { it.isNotBlank() }
+                        ?.let { connection.setRequestProperty("If-Modified-Since", it) }
+                }
+                val conditional =
+                    validate &&
+                        (validators!!.etag.isNotBlank() || validators.lastModified.isNotBlank())
                 val code = connection.responseCode
                 if (code in listOf(301, 302, 303, 307, 308)) {
                     val location =
@@ -105,7 +143,11 @@ class PodcastHttp {
                             ?: throw PodcastException("転送先のURLを取得できません。")
                     uri = podcastUrl(uri.resolve(location).toString())
                 } else {
-                    if (code !in 200..299) throw PodcastException("配信元に接続できませんでした（HTTP $code）。")
+                    if (
+                        code !in 200..299 &&
+                            !(code == HttpURLConnection.HTTP_NOT_MODIFIED && conditional)
+                    )
+                        throw PodcastException("配信元に接続できませんでした（HTTP $code）。")
                     return read(connection, uri)
                 }
             } finally {

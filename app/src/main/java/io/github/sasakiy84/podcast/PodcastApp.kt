@@ -39,302 +39,314 @@ fun PodcastApp(
     onSettings: () -> Unit = {},
 ): Unit {
     PodcastTheme {
-        var tab by rememberSaveable { mutableStateOf(HomeTab.Library) }
-        var selectedFeed by rememberSaveable { mutableStateOf<String?>(null) }
-        var playerExpanded by rememberSaveable { mutableStateOf(false) }
-        var queueEpisode by rememberSaveable { mutableStateOf<String?>(null) }
-        var episodeSnapshot by remember { mutableStateOf<Episode?>(null) }
-        var episodeDetails by rememberSaveable { mutableStateOf<String?>(null) }
-        val routeStates = rememberSaveableStateHolder()
-        var libraryMenu by remember { mutableStateOf(false) }
-        var unsubscribe by remember { mutableStateOf<Podcast?>(null) }
-        LaunchedEffect(initialFeedUrl, openFeedRequest) {
-            if (initialFeedUrl != null) selectedFeed = initialFeedUrl
-        }
-        val selected = state.library.podcasts.firstOrNull { it.feedUrl == selectedFeed }
-        val knownEpisodes =
-            remember(state.library.episodes, state.podcastPages) {
-                (state.podcastPages.values.flatMap { it.episodes } + state.library.episodes)
-                    .associateBy { it.id }
+        EpisodeSharingHost {
+            var tab by rememberSaveable { mutableStateOf(HomeTab.Library) }
+            var selectedFeed by rememberSaveable { mutableStateOf<String?>(null) }
+            var playerExpanded by rememberSaveable { mutableStateOf(false) }
+            var queueEpisode by rememberSaveable { mutableStateOf<String?>(null) }
+            var episodeSnapshot by remember { mutableStateOf<Episode?>(null) }
+            var episodeDetails by rememberSaveable { mutableStateOf<String?>(null) }
+            val routeStates = rememberSaveableStateHolder()
+            var libraryMenu by remember { mutableStateOf(false) }
+            var unsubscribe by remember { mutableStateOf<Podcast?>(null) }
+            LaunchedEffect(initialFeedUrl, openFeedRequest) {
+                if (initialFeedUrl != null) selectedFeed = initialFeedUrl
             }
-        val current = knownEpisodes[state.playback.episodeId]
-        var bottomBarHeight by remember { mutableIntStateOf(0) }
-        val bottomClearance = with(LocalDensity.current) { bottomBarHeight.toDp() }
-        LaunchedEffect(current?.id) { if (current == null) playerExpanded = false }
-        val snackbar = remember { SnackbarHostState() }
-        LaunchedEffect(state.message) {
-            state.message?.let { message ->
-                snackbar.showSnackbar(message)
-                onAction(PodcastAction.ClearMessage)
-            }
-        }
-        BackHandler(enabled = playerExpanded || selected != null || tab != HomeTab.Library) {
-            if (playerExpanded) playerExpanded = false
-            else if (selectedFeed != null) selectedFeed = null else tab = HomeTab.Library
-        }
-        val navigation: @Composable () -> Unit = {
-            NavigationBar(
-                modifier = Modifier.testTag("bottom-navigation"),
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 0.dp,
-            ) {
-                HomeTab.entries.forEach { item ->
-                    NavigationBarItem(
-                        modifier = Modifier.semantics { contentDescription = "タブ: ${item.label}" },
-                        selected = tab == item,
-                        onClick = {
-                            tab = item
-                            selectedFeed = null
-                        },
-                        icon = {
-                            Icon(
-                                when (item) {
-                                    HomeTab.Library -> Icons.Default.GridView
-                                    HomeTab.Episodes -> Icons.Default.Headphones
-                                    HomeTab.Queues -> Icons.AutoMirrored.Filled.QueueMusic
-                                    HomeTab.Search -> Icons.Default.Search
-                                },
-                                null,
-                            )
-                        },
-                        label = {
-                            Text(
-                                if (item == HomeTab.Library) "番組" else item.label,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                    )
+            val selected = state.library.podcasts.firstOrNull { it.feedUrl == selectedFeed }
+            val knownEpisodes =
+                remember(
+                    state.library.episodes,
+                    state.podcastPages,
+                    state.episodeSearch.result.episodes,
+                ) {
+                    (state.episodeSearch.result.episodes +
+                            state.podcastPages.values.flatMap { it.episodes } +
+                            state.library.episodes)
+                        .associateBy { it.id }
                 }
+            val current = knownEpisodes[state.playback.episodeId]
+            var bottomBarHeight by remember { mutableIntStateOf(0) }
+            val bottomClearance = with(LocalDensity.current) { bottomBarHeight.toDp() }
+            LaunchedEffect(current?.id) { if (current == null) playerExpanded = false }
+            val snackbar = rememberAppSnackbar(state, onAction)
+            BackHandler(enabled = playerExpanded || selected != null || tab != HomeTab.Library) {
+                if (playerExpanded) playerExpanded = false
+                else if (selectedFeed != null) selectedFeed = null else tab = HomeTab.Library
             }
-        }
-        Box(Modifier.fillMaxSize()) {
-            PlayerHost(
-                current,
-                state,
-                onAction,
-                playerExpanded,
-                { playerExpanded = it },
-                navigation,
-                queues = {
-                    playerExpanded = false
-                    selectedFeed = null
-                    tab = HomeTab.Queues
-                },
-                membership = { queueEpisode = current?.id },
-                openPodcast = {
-                    playerExpanded = false
-                    selectedFeed = current?.feedUrl
-                },
-            ) { peek, playerHandlesBack ->
-                Scaffold(
-                    contentWindowInsets = WindowInsets.safeDrawing,
-                    snackbarHost = {},
-                    topBar = {
-                        TopAppBar(
-                            title = {
-                                Text(
-                                    selected?.title ?: tab.label,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    fontWeight = FontWeight.Bold,
+            val navigation: @Composable () -> Unit = {
+                NavigationBar(
+                    modifier = Modifier.testTag("bottom-navigation"),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 0.dp,
+                ) {
+                    HomeTab.entries.forEach { item ->
+                        NavigationBarItem(
+                            modifier =
+                                Modifier.semantics { contentDescription = "タブ: ${item.label}" },
+                            selected = tab == item,
+                            onClick = {
+                                tab = item
+                                selectedFeed = null
+                            },
+                            icon = {
+                                Icon(
+                                    when (item) {
+                                        HomeTab.Library -> Icons.Default.GridView
+                                        HomeTab.Episodes -> Icons.Default.Headphones
+                                        HomeTab.Queues -> Icons.AutoMirrored.Filled.QueueMusic
+                                        HomeTab.Search -> Icons.Default.Search
+                                    },
+                                    null,
                                 )
                             },
-                            navigationIcon = {
-                                if (selected != null)
-                                    IconButton(onClick = { selectedFeed = null }) {
-                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "一覧に戻る")
-                                    }
-                            },
-                            actions = {
-                                if (selected != null)
-                                    IconButton(onClick = { unsubscribe = selected }) {
-                                        Icon(Icons.Default.MoreVert, "購読を解除")
-                                    }
-                                if (tab != HomeTab.Search) {
-                                    IconButton(
-                                        onClick = { onAction(PodcastAction.Refresh) },
-                                        enabled =
-                                            !state.refreshing && state.library.podcasts.isNotEmpty(),
-                                    ) {
-                                        if (state.refreshing)
-                                            Column(
-                                                horizontalAlignment = Alignment.CenterHorizontally
-                                            ) {
-                                                CircularProgressIndicator(
-                                                    Modifier.size(16.dp),
-                                                    strokeWidth = 2.dp,
-                                                )
-                                                if (state.refreshTotal > 0)
-                                                    Text(
-                                                        "${state.refreshCompleted}/${state.refreshTotal}",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                    )
-                                            }
-                                        else Icon(Icons.Default.Refresh, "番組を更新")
-                                    }
-                                }
-                                if (tab == HomeTab.Library && selected == null)
-                                    Box {
-                                        IconButton(
-                                            onClick = { libraryMenu = true },
-                                            enabled = !state.opmlBusy,
-                                        ) {
-                                            if (state.opmlBusy)
-                                                CircularProgressIndicator(
-                                                    Modifier.size(22.dp),
-                                                    strokeWidth = 2.dp,
-                                                )
-                                            else Icon(Icons.Default.MoreVert, "番組一覧のメニュー")
-                                        }
-                                        DropdownMenu(
-                                            expanded = libraryMenu,
-                                            onDismissRequest = { libraryMenu = false },
-                                        ) {
-                                            PodcastSort.entries.forEach { sort ->
-                                                DropdownMenuItem(
-                                                    text = { Text(sort.label) },
-                                                    onClick = {
-                                                        onAction(PodcastAction.SortPodcasts(sort))
-                                                        libraryMenu = false
-                                                    },
-                                                    trailingIcon = {
-                                                        if (state.podcastSort == sort)
-                                                            Icon(Icons.Default.Check, null)
-                                                    },
-                                                )
-                                            }
-                                            HorizontalDivider()
-                                            DropdownMenuItem(
-                                                text = { Text("設定") },
-                                                onClick = {
-                                                    libraryMenu = false
-                                                    onSettings()
-                                                },
-                                            )
-                                        }
-                                    }
+                            label = {
+                                Text(
+                                    if (item == HomeTab.Library) "番組" else item.label,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             },
                         )
-                    },
-                    bottomBar = {
-                        Box(Modifier.onSizeChanged { bottomBarHeight = it.height }) {
-                            if (current == null) navigation() else Spacer(Modifier.height(peek))
-                        }
-                    },
-                ) { padding ->
-                    RefreshableContent(
-                        enabled =
-                            selected != null || tab in listOf(HomeTab.Library, HomeTab.Episodes),
-                        isRefreshing = state.refreshing,
-                        onRefresh = { onAction(PodcastAction.Refresh) },
-                        modifier =
-                            Modifier.fillMaxSize()
-                                .padding(padding)
-                                .testTag("home-content")
-                                .consumeWindowInsets(padding),
-                    ) {
-                        when {
-                            selected != null ->
-                                routeStates.SaveableStateProvider("podcast:${selected.feedUrl}") {
-                                    PodcastDetails(
-                                        selected,
-                                        state,
-                                        onAction,
-                                        queue = { queueEpisode = it.id },
-                                    ) {
-                                        episodeSnapshot = it
-                                        episodeDetails = it.id
-                                    }
-                                }
-                            tab == HomeTab.Library ->
-                                routeStates.SaveableStateProvider("library") {
-                                    PodcastLibrary(
-                                        state.library,
-                                        state.podcastSort,
-                                        { selectedFeed = it.feedUrl },
-                                        { tab = HomeTab.Search },
-                                    )
-                                }
-                            tab == HomeTab.Episodes ->
-                                routeStates.SaveableStateProvider("episodes") {
-                                    EpisodesPage(
-                                        state,
-                                        onAction,
-                                        queue = { queueEpisode = it.id },
-                                    ) {
-                                        episodeSnapshot = it
-                                        episodeDetails = it.id
-                                    }
-                                }
-                            tab == HomeTab.Queues ->
-                                routeStates.SaveableStateProvider("queues") {
-                                    PlaybackQueuesPage(
-                                        state,
-                                        onAction,
-                                        onQueue = { queueEpisode = it.id },
-                                        backEnabled = !playerHandlesBack,
-                                    ) {
-                                        episodeSnapshot = it
-                                        episodeDetails = it.id
-                                    }
-                                }
-                            else ->
-                                routeStates.SaveableStateProvider("search") {
-                                    SearchPage(state, onAction)
-                                }
-                        }
                     }
                 }
             }
-            SnackbarHost(
-                snackbar,
-                Modifier.align(Alignment.BottomCenter)
-                    .padding(bottom = if (playerExpanded) 96.dp else bottomClearance + 8.dp),
-            )
-        }
-        (knownEpisodes[episodeDetails]
-                ?: episodeSnapshot?.takeIf {
-                    it.id == episodeDetails &&
-                        state.library.podcasts.any { p -> p.feedUrl == it.feedUrl }
-                })
-            ?.let { episode ->
-                EpisodeDetailsSheet(
-                    episode,
+            Box(Modifier.fillMaxSize()) {
+                PlayerHost(
+                    current,
                     state,
                     onAction,
-                    onDismiss = { episodeDetails = null },
-                    openPodcast = { podcast ->
-                        episodeDetails = null
+                    playerExpanded,
+                    { playerExpanded = it },
+                    navigation,
+                    queues = {
                         playerExpanded = false
-                        selectedFeed = podcast.feedUrl
+                        selectedFeed = null
+                        tab = HomeTab.Queues
                     },
-                    editQueues = {
-                        queueEpisode = episode.id
-                        episodeDetails = null
+                    membership = { queueEpisode = current?.id },
+                    openPodcast = {
+                        playerExpanded = false
+                        selectedFeed = current?.feedUrl
+                    },
+                ) { peek, playerHandlesBack ->
+                    Scaffold(
+                        contentWindowInsets = WindowInsets.safeDrawing,
+                        snackbarHost = {},
+                        topBar = {
+                            TopAppBar(
+                                title = {
+                                    Text(
+                                        selected?.title ?: tab.label,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                },
+                                navigationIcon = {
+                                    if (selected != null)
+                                        IconButton(onClick = { selectedFeed = null }) {
+                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "一覧に戻る")
+                                        }
+                                },
+                                actions = {
+                                    if (selected != null)
+                                        IconButton(onClick = { unsubscribe = selected }) {
+                                            Icon(Icons.Default.MoreVert, "購読を解除")
+                                        }
+                                    if (tab != HomeTab.Search) {
+                                        IconButton(
+                                            onClick = { onAction(PodcastAction.Refresh) },
+                                            enabled =
+                                                !state.refreshing &&
+                                                    state.library.podcasts.isNotEmpty(),
+                                        ) {
+                                            if (state.refreshing)
+                                                Column(
+                                                    horizontalAlignment =
+                                                        Alignment.CenterHorizontally
+                                                ) {
+                                                    CircularProgressIndicator(
+                                                        Modifier.size(16.dp),
+                                                        strokeWidth = 2.dp,
+                                                    )
+                                                    if (state.refreshTotal > 0)
+                                                        Text(
+                                                            "${state.refreshCompleted}/${state.refreshTotal}",
+                                                            style =
+                                                                MaterialTheme.typography.labelSmall,
+                                                        )
+                                                }
+                                            else Icon(Icons.Default.Refresh, "番組を更新")
+                                        }
+                                    }
+                                    if (tab == HomeTab.Library && selected == null)
+                                        Box {
+                                            IconButton(
+                                                onClick = { libraryMenu = true },
+                                                enabled = !state.opmlBusy,
+                                            ) {
+                                                if (state.opmlBusy)
+                                                    CircularProgressIndicator(
+                                                        Modifier.size(22.dp),
+                                                        strokeWidth = 2.dp,
+                                                    )
+                                                else Icon(Icons.Default.MoreVert, "番組一覧のメニュー")
+                                            }
+                                            DropdownMenu(
+                                                expanded = libraryMenu,
+                                                onDismissRequest = { libraryMenu = false },
+                                            ) {
+                                                PodcastSort.entries.forEach { sort ->
+                                                    DropdownMenuItem(
+                                                        text = { Text(sort.label) },
+                                                        onClick = {
+                                                            onAction(
+                                                                PodcastAction.SortPodcasts(sort)
+                                                            )
+                                                            libraryMenu = false
+                                                        },
+                                                        trailingIcon = {
+                                                            if (state.podcastSort == sort)
+                                                                Icon(Icons.Default.Check, null)
+                                                        },
+                                                    )
+                                                }
+                                                HorizontalDivider()
+                                                DropdownMenuItem(
+                                                    text = { Text("設定") },
+                                                    onClick = {
+                                                        libraryMenu = false
+                                                        onSettings()
+                                                    },
+                                                )
+                                            }
+                                        }
+                                },
+                            )
+                        },
+                        bottomBar = {
+                            Box(Modifier.onSizeChanged { bottomBarHeight = it.height }) {
+                                if (current == null) navigation() else Spacer(Modifier.height(peek))
+                            }
+                        },
+                    ) { padding ->
+                        RefreshableContent(
+                            enabled =
+                                selected != null ||
+                                    tab in listOf(HomeTab.Library, HomeTab.Episodes),
+                            isRefreshing = state.refreshing,
+                            onRefresh = { onAction(PodcastAction.Refresh) },
+                            modifier =
+                                Modifier.fillMaxSize()
+                                    .padding(padding)
+                                    .testTag("home-content")
+                                    .consumeWindowInsets(padding),
+                        ) {
+                            when {
+                                selected != null ->
+                                    routeStates.SaveableStateProvider(
+                                        "podcast:${selected.feedUrl}"
+                                    ) {
+                                        PodcastDetails(
+                                            selected,
+                                            state,
+                                            onAction,
+                                            queue = { queueEpisode = it.id },
+                                        ) {
+                                            episodeSnapshot = it
+                                            episodeDetails = it.id
+                                        }
+                                    }
+                                tab == HomeTab.Library ->
+                                    routeStates.SaveableStateProvider("library") {
+                                        PodcastLibrary(
+                                            state.library,
+                                            state.podcastSort,
+                                            { selectedFeed = it.feedUrl },
+                                            { tab = HomeTab.Search },
+                                        )
+                                    }
+                                tab == HomeTab.Episodes ->
+                                    routeStates.SaveableStateProvider("episodes") {
+                                        EpisodesPage(
+                                            state,
+                                            onAction,
+                                            queue = { queueEpisode = it.id },
+                                            backEnabled = !playerHandlesBack,
+                                        ) {
+                                            episodeSnapshot = it
+                                            episodeDetails = it.id
+                                        }
+                                    }
+                                tab == HomeTab.Queues ->
+                                    routeStates.SaveableStateProvider("queues") {
+                                        PlaybackQueuesPage(
+                                            state,
+                                            onAction,
+                                            onQueue = { queueEpisode = it.id },
+                                            backEnabled = !playerHandlesBack,
+                                        ) {
+                                            episodeSnapshot = it
+                                            episodeDetails = it.id
+                                        }
+                                    }
+                                else ->
+                                    routeStates.SaveableStateProvider("search") {
+                                        SearchPage(state, onAction)
+                                    }
+                            }
+                        }
+                    }
+                }
+                SnackbarHost(
+                    snackbar,
+                    Modifier.align(Alignment.BottomCenter)
+                        .padding(bottom = if (playerExpanded) 96.dp else bottomClearance + 8.dp),
+                )
+            }
+            (knownEpisodes[episodeDetails]
+                    ?: episodeSnapshot?.takeIf {
+                        it.id == episodeDetails &&
+                            state.library.podcasts.any { p -> p.feedUrl == it.feedUrl }
+                    })
+                ?.let { episode ->
+                    EpisodeDetailsSheet(
+                        episode,
+                        state,
+                        onAction,
+                        onDismiss = { episodeDetails = null },
+                        openPodcast = { podcast ->
+                            episodeDetails = null
+                            playerExpanded = false
+                            selectedFeed = podcast.feedUrl
+                        },
+                        editQueues = {
+                            queueEpisode = episode.id
+                            episodeDetails = null
+                        },
+                    )
+                }
+            (knownEpisodes[queueEpisode]
+                    ?: episodeSnapshot?.takeIf {
+                        it.id == queueEpisode &&
+                            state.library.podcasts.any { p -> p.feedUrl == it.feedUrl }
+                    })
+                ?.let { episode ->
+                    QueueMembershipDialog(episode, state.library, onAction) { queueEpisode = null }
+                }
+            unsubscribe?.let { podcast ->
+                ConfirmationSheet(
+                    "購読を解除しますか？",
+                    "「${podcast.title}」と保存した音声を削除します。",
+                    "購読を解除",
+                    onDismiss = { unsubscribe = null },
+                    onConfirm = {
+                        onAction(PodcastAction.Unsubscribe(podcast))
+                        selectedFeed = null
+                        unsubscribe = null
                     },
                 )
             }
-        (knownEpisodes[queueEpisode]
-                ?: episodeSnapshot?.takeIf {
-                    it.id == queueEpisode &&
-                        state.library.podcasts.any { p -> p.feedUrl == it.feedUrl }
-                })
-            ?.let { episode ->
-                QueueMembershipDialog(episode, state.library, onAction) { queueEpisode = null }
-            }
-        unsubscribe?.let { podcast ->
-            ConfirmationSheet(
-                "購読を解除しますか？",
-                "「${podcast.title}」と保存した音声を削除します。",
-                "購読を解除",
-                onDismiss = { unsubscribe = null },
-                onConfirm = {
-                    onAction(PodcastAction.Unsubscribe(podcast))
-                    selectedFeed = null
-                    unsubscribe = null
-                },
-            )
         }
     }
 }
