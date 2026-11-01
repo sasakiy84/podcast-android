@@ -1,0 +1,4 @@
+<resources>
+    <color name="galena_window_background">@color/galena_dark_background</color>
+    <color name="galena_system_accent">@color/galena_facet</color>
+</resources>

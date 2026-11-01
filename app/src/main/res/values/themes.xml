@@ -1,6 +1,9 @@
 <resources>
     <style name="Theme.Podcast" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">@color/galena_system_accent</item>
+        <item name="android:windowBackground">@color/galena_window_background</item>
+        <item name="android:windowSplashScreenBackground">@color/galena_window_background</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>

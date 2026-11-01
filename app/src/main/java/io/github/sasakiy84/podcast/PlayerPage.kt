@@ -19,7 +19,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -342,14 +341,14 @@ internal fun PlayerPage(
                                             },
                                         colors =
                                             IconButtonDefaults.filledIconButtonColors(
-                                                containerColor = Color.White,
-                                                contentColor = Color.Black,
+                                                containerColor = MaterialTheme.colorScheme.primary,
+                                                contentColor = MaterialTheme.colorScheme.onPrimary,
                                             ),
                                     ) {
                                         if (playback.buffering)
                                             CircularProgressIndicator(
                                                 Modifier.size(32.dp),
-                                                color = MaterialTheme.colorScheme.surface,
+                                                color = MaterialTheme.colorScheme.onPrimary,
                                             )
                                         else
                                             Icon(

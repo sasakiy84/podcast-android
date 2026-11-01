@@ -1,0 +1,5 @@
+<resources>
+    <color name="galena_dark_background">#18110D</color>
+    <color name="galena_window_background">@color/galena_background</color>
+    <color name="galena_system_accent">@color/galena_copper</color>
+</resources>
