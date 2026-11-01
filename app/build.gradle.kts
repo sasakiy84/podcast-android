@@ -18,8 +18,8 @@ android {
         applicationId = "io.github.sasakiy84.podcast"
         minSdk = 36
         targetSdk = 36
-        versionCode = providers.gradleProperty("releaseVersionCode").orElse("15").get().toInt()
-        versionName = providers.gradleProperty("releaseVersion").orElse("0.8.0").get()
+        versionCode = providers.gradleProperty("releaseVersionCode").orElse("16").get().toInt()
+        versionName = providers.gradleProperty("releaseVersion").orElse("0.8.1").get()
     }
     if (hasReleaseSigning) {
         signingConfigs {

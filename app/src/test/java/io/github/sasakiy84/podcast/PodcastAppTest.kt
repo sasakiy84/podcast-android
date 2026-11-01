@@ -106,6 +106,8 @@ class PodcastAppTest {
         compose.onNodeWithContentDescription(second.title).performClick()
         restoration.emulateSavedInstanceStateRestore()
         compose.onNodeWithContentDescription("一覧に戻る").assertIsDisplayed()
+        compose.backGesture()
+        compose.onNodeWithContentDescription(second.title).assertIsDisplayed()
     }
 
     @Test

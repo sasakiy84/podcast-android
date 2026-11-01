@@ -126,7 +126,7 @@ fun PodcastApp(
                     playerExpanded = false
                     selectedFeed = current?.feedUrl
                 },
-            ) { peek ->
+            ) { peek, playerHandlesBack ->
                 Scaffold(
                     contentWindowInsets = WindowInsets.safeDrawing,
                     snackbarHost = {},
@@ -273,6 +273,7 @@ fun PodcastApp(
                                         state,
                                         onAction,
                                         onQueue = { queueEpisode = it.id },
+                                        backEnabled = !playerHandlesBack,
                                     ) {
                                         episodeSnapshot = it
                                         episodeDetails = it.id

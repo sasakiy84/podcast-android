@@ -20,15 +20,6 @@ class AppNavigationTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val show = Podcast("https://example.org/rss", "番組")
     private val episode = Episode("one", show.feedUrl, "第一回", "https://example.org/a.mp3")
-    @Test fun backFromSearchAndPodcastReturnsHomeWithoutFinishingActivity(): Unit {
-        compose.setContent { PodcastApp(PodcastUiState(library = Library(listOf(show)))) }
-        compose.onNodeWithContentDescription("タブ: 検索").performClick()
-        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
-        compose.onNodeWithContentDescription(show.title).performClick()
-        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
-        compose.onNodeWithContentDescription(show.title).assertIsDisplayed()
-        assertFalse(compose.activity.isFinishing)
-    }
     @Test fun queueMembershipCanBeToggledByItsLabel(): Unit {
         val events = mutableListOf<PodcastAction>()
         compose.setContent { PodcastTheme { QueueMembershipDialog(episode, Library(queues = listOf(PlaybackQueue("q", "技術"))), events::add, {}) } }

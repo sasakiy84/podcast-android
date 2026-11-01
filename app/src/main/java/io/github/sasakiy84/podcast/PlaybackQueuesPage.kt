@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.dp
 import java.util.UUID
 
 @Composable
-internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -> Unit, onQueue: (Episode) -> Unit = {}, details: (Episode) -> Unit): Unit {
+internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -> Unit, onQueue: (Episode) -> Unit = {}, backEnabled: Boolean = true, details: (Episode) -> Unit): Unit {
     val swipes = remember { EpisodeSwipeState() }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingQueue by remember { mutableStateOf<PlaybackQueue?>(null) }
@@ -40,7 +40,7 @@ internal fun PlaybackQueuesPage(state: PodcastUiState, action: (PodcastAction) -
     var newRule by remember { mutableStateOf(false) }
     var ruleSettings by rememberSaveable { mutableStateOf(false) }
     val queue = state.library.queues.firstOrNull { it.id == selectedId }
-    BackHandler(enabled = queue != null) { selectedId = null }
+    BackHandler(enabled = backEnabled && queue != null) { selectedId = null }
     LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (queue == null) {
             item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { TextButton(onClick = { creating = true }) { Icon(Icons.Default.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("キューを作成") } } }

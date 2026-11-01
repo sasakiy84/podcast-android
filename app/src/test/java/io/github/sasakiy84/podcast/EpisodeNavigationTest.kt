@@ -49,7 +49,9 @@ class EpisodeNavigationTest {
         compose.onNodeWithContentDescription("番組を開く: ${show.title}").performClick()
         compose.onNodeWithContentDescription("一覧に戻る").assertIsDisplayed()
         compose.onNodeWithText("購読元").assertIsDisplayed()
-        compose.onNodeWithContentDescription("一覧に戻る").performClick()
+        compose.backGesture(cancel = true)
+        compose.onNodeWithContentDescription("一覧に戻る").assertIsDisplayed()
+        compose.backGesture()
         compose.onNodeWithContentDescription("エピソード詳細: エピソード20").assertIsDisplayed()
         compose.onNodeWithContentDescription("エピソード詳細: エピソード1").assertDoesNotExist()
     }
