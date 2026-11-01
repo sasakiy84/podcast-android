@@ -91,7 +91,35 @@ class PlaybackCommandsTest {
             assertEquals(second.id, player.currentMediaItem?.mediaId)
             assertEquals(0L, player.currentPosition)
             assertTrue(player.playWhenReady)
+            repository.updateProgress(first.id, ListeningProgress(90_000, first.durationMs))
+            commands.previous(player)
+            assertEquals(first.id, player.currentMediaItem?.mediaId)
+            assertEquals(0L, player.currentPosition)
+            assertEquals(0L, repository.store.progress(first.id).positionMs)
+            assertTrue(player.playWhenReady)
         }
+
+    @Test
+    fun explicitChaptersPreservePauseAndOverrideStartSkipWhenChangingEpisode(): Unit = runBlocking {
+        repository.settings.setOptions(show.feedUrl, PodcastOptions(skipStartSeconds = 45))
+        player.setMediaItem(first.mediaItem(repository), 90_000)
+        var observedPosition = -1L
+        commands.playChapter(player, first, 12_000) { observedPosition = player.currentPosition }
+        assertEquals(12_000L, observedPosition)
+        assertEquals(12_000L, player.currentPosition)
+        assertFalse(player.playWhenReady)
+
+        repository.updateProgress(second.id, ListeningProgress(600_000, 600_000, true))
+        repository.preferences.edit().putString("active_queue", "news").commit()
+        commands.playChapter(player, second, 10_000) {}
+        assertEquals(second.id, player.currentMediaItem?.mediaId)
+        assertEquals(10_000L, player.currentPosition)
+        assertTrue(player.playWhenReady)
+        assertFalse(repository.store.progress(second.id).completed)
+        assertFalse(repository.preferences.contains("active_queue"))
+        assertFalse(player.currentMediaItem!!.mediaMetadata.extras!!.getBoolean("apply_start_skip"))
+        assertEquals(second.id, repository.preferences.getString("current", null))
+    }
 
     @Test
     fun removingCurrentAudioKeepsTheQueuePositionAndExplicitChapterPolicy(): Unit = runBlocking {

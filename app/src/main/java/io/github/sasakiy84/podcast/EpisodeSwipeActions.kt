@@ -28,7 +28,7 @@ internal class EpisodeSwipeState { var openId by mutableStateOf<String?>(null) }
 /** Horizontal drags reveal explicit actions; vertical scrolling never commits a swipe action. */
 @Composable
 internal fun EpisodeSwipeActions(episode: Episode, state: PodcastUiState, action: (PodcastAction) -> Unit,
-    swipes: EpisodeSwipeState, queue: () -> Unit, remove: (() -> Unit)?, content: @Composable () -> Unit): Unit {
+    swipes: EpisodeSwipeState, remove: (() -> Unit)?, content: @Composable () -> Unit): Unit {
     val density = LocalDensity.current
     val leading = with(density) { 72.dp.toPx() }
     val trailing = with(density) { 192.dp.toPx() }

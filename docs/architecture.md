@@ -1,29 +1,52 @@
 # 保守時の入口
 
-- `PodcastApp` はタブ・番組・モーダルの遷移と画面状態の保持を担当する。エピソード詳細のシートは `EpisodeDetailsSheet`。番組とエピソード一覧は `LibraryPages`、再生画面は `PlayerPage`、共通の色は `PodcastTheme`。
-- `PodcastUiState` / `PodcastAction` が画面と `PodcastsViewModel` の境界。通信や保存を Composable から直接実行しない。ViewModel は接続とコルーチン・エラー処理を管理し、再生/再開/キュー再生の方針は `PlaybackCommands` に分離する。設定値のUI反映は `PodcastStatePreferences` の同じ投影処理を使う。
-- `PodcastRepository` が更新の同時実行制限と保存の排他制御を担当する。`PodcastDownloadStorage` は DownloadManager と音声ファイル、`PodcastNotifications` は新着通知を扱う。
-- `PlaybackService` が MediaSession と再生履歴の保存を管理する。キュー反映は `PlaybackQueueSynchronizer`、シークと先頭・末尾スキップは `PlaybackTransport`、速度の追従は `PlaybackSpeedController` に分ける。画面を閉じても再生設定は有効。
-- `PodcastHttp` はHTTP転送・圧縮・文字コード・取得上限、`PodcastDirectory` は検索と共有URLの解決を担当する。
-- `FeedParser` は RSS / Atom と Podlove チャプターをストリーム解析する。`EpisodeContent` は説明文の段落・安全なリンク先と Podcasting 2.0 JSON チャプターを扱い、`ContentText` が選択・コピー可能なリンク付きテキストを描画する。
-- `PodcastStore` は schema 5。更新は `onUpgrade` で既存の購読・キュー・音声参照を保持する。履歴は実際の再生時に記録し、古い版の再生進捗も引き継ぐ。ただし古い版には視聴日時がないため、移行前の履歴は日時不明として新しい記録より後ろに並ぶ。
+## 責務の分担
 
-末尾スキップは次の音声へ移動してから完了を保存する。順序を逆にすると、キューの変更通知でもう一度進むおそれがある。再生済みはすべてのキューから取り除き、お気に入りと履歴は保持する。実際に再生が完了した場合は保存音声と DownloadManager の記録を削除する（末尾スキップも含む）。手動で再生済みにしただけでは削除しない。削除後の再生元は配信URLに戻し、単独再生でも再生できるようにする。
+| 変更する対象 | 主な実装 |
+| --- | --- |
+| タブ・番組詳細・エピソード詳細・スクロール状態 | `PodcastApp`、`LibraryPages`、`EpisodeDetailsSheet` |
+| 再生パネルと戻る操作 | `PlayerHost`（`PlayerSheet.kt`）、`PlayerPage` |
+| 設定と保存容量・更新結果 | `SettingsActivity`、`ManagementPage` |
+| 共有・操作の取り消し通知 | `Sharing`、`AppSnackbar` |
+| 色とアプリアイコン | `PodcastTheme`、[ロゴと配色](branding/README.md) |
+| 画面と処理の境界 | `PodcastUiState` / `PodcastAction`、`PodcastsViewModel` |
+| 再生開始・再開・前後移動・チャプター・音声削除後の切り替え | `PlaybackCommands` |
+| 再生セッションと履歴の保存 | `PlaybackService` |
+| 再生キュー・速度・シークとスキップ | `PlaybackQueueSynchronizer`、`PlaybackSpeedController`、`PlaybackTransport` |
+| 更新・保存の排他制御とOSへの接続 | `PodcastRepository`、`PodcastDownloadStorage`、`PodcastNotifications`、`PodcastSyncJob` |
+| HTTP取得・番組検索・URL解決 | `PodcastHttp`、`PodcastDirectory` |
+| RSS / Atom・説明文・チャプターの解析 | `FeedParser`、`EpisodeContent` |
+| リンク・選択・コピー可能な本文の表示 | `ContentText` |
+| DB・全文検索・キューと進捗の取り消し | `PodcastStore` |
 
-新着通知は番組別の既定値がオフ。オンにすると Android の通知権限を要求する。初回の取得では過去回の通知を出さず、以降の新着を番組単位でまとめる。通知だけをオンにした番組も定期更新の対象になる。
+Composable は `PodcastAction` を渡し、通信や保存はViewModel経由で実行する。ViewModel は接続・コルーチン・エラー処理・UIへの反映を担当し、再生方針は `PlaybackCommands` に置く。設定値のUI反映は `PodcastStatePreferences` の投影処理を使う。
 
-変更後は `./gradlew testDebugUnitTest lintDebug assembleDebug`。再生・保存の回帰は `EpisodeFeaturesTest`、操作は `PlayerInteractionTest` / `PodcastUxTest`、画像カタログは明示実行の `ScreenCapture` で生成する。テストの削除・統合判断と実行方法は [test-audit.md](test-audit.md) を参照する。実 RSS / OPML の私的データはテストコードやリポジトリに含めない。
+## 再生と保存で守ること
 
-`MainActivity` は単一の再生セッションとタブ・番組詳細を保持し、サブ画面では BackHandler で上位へ戻る。アプリ終了は番組一覧のルートだけに委ねる。設定は `SettingsActivity` に分け、OS の Activity バックスタックで戻る。再生画面は `PlayerHost` の常設 Material BottomSheetScaffold とし、ミニプレーヤーと展開画面でアンカーを共有する。標準のアンカー・速度・ネストスクロール・hide アニメーションで開閉する。
+- 単独再生では実行中キューを解除し、現在の回を保存して、初期一覧の範囲外でも表示できるようにする。通常の再開位置と、明示したチャプター位置を区別する。同じ回のチャプターへシークした場合は一時停止状態を保持する。
+- 末尾スキップは次の音声へ移動してから完了を保存する。逆順にすると、キューの変更通知でもう一度進むおそれがある。
+- 再生済みは全キューから取り除き、お気に入りと履歴を保持する。実再生の完了時だけ保存音声とDownloadManagerの記録を削除する。手動の再生済み変更では音声を削除しない。
+- 保存音声を削除した後の再生元は配信URLへ戻す。現在位置・再生状態・タイムラインと明示したチャプター位置を保持する。
+- DBはschema 5。旧版の購読・キュー・進捗・音声参照を `onUpgrade` で引き継ぐ。履歴は実際の再生時に記録し、日時のない旧記録は新しい記録より後ろへ並べる。
 
-起動時はDBを表示するだけでRSSを更新しない。全購読を対象に永続 JobScheduler を設定し、設定した間隔で更新する。明示した更新操作やOPML取り込み直後の取得は即時に実行する。Wi-Fi 制限の変更は未完了の DownloadManager リクエストを再作成して適用する。
+## 画面遷移と再生パネル
 
-`PlayerHost` は常設の BottomSheetScaffold と標準 SheetState の展開・折りたたみアンカーを共有する。ミニプレーヤー側で距離だけを判定して別画面を出さない。再生中のタブは HorizontalPager と同じ状態で管理する。シートをボタンで閉じる操作は `rememberSheetAction` で hide 完了後に解除し、未完了の終了処理の重複を防ぐ。キュー追加の結果はプレーヤーより上の Snackbar と追加済みアイコンで示す。
+`MainActivity` はタブと番組詳細を保持する。設定は `SettingsActivity` を使い、OSのActivityバックスタックで戻る。再生画面・シート・子画面から順に戻り、アプリ終了は番組一覧のルートに委ねる。経路ごとの確認範囲は [戻る操作の監査](back-navigation-audit.md) を参照する。
 
-通知の下余白は固定のプレーヤー高さを使わず、Scaffold の下部バーの実測高さに合わせる。再生項目がなくなった場合は展開状態も解除する。エピソードから番組への移動は `PodcastLink` を使い、元のタブ・一覧状態を残して `selectedFeed` を切り替える。キュー内の行には追加操作を重ねず、再生と補助操作を分離する。
+`PlayerHost` はミニプレーヤーと展開画面で常設のMaterialシートとアンカーを共有する。開閉は標準のドラッグ・速度・ネストスクロールに任せる。再生中のタブは `HorizontalPager`、モーダルを閉じる操作は `rememberSheetAction` で終了アニメーションを待つ。
 
-再生パネルの初期寸法に生のピクセル数を使わない。ミニプレーヤーは64dp（進捗線があれば+2dp）、ナビは80dpとシステム余白で初期化し、パネルの描画後サイズを同じアンカーの計算へ循環させない。折りたたみ済みなら起動時の partialExpand アニメーションを省く。端末密度3の初期各フレームを `PlayerDeviceLayoutTest` で位置と描画ピクセルの両方から検証する。行の補助操作は長押しメニューへ集約し、表示ボタンは再生だけにする。
+- 初期寸法はミニプレーヤー64dp（進捗線があれば+2dp）、ナビ80dpとシステム余白。生のピクセル値や、パネルの描画後サイズを同じアンカー計算へ循環させない。
+- 密度・余白・ミニパネル高さを捕捉する `derivedStateOf` は、依存値が変わると更新する。折りたたみ済みなら起動時の折りたたみアニメーションを省く。
+- 戻るの所有者は展開要求とSheetStateの現在／移動先の状態で決める。背後の画面のBackHandlerは、再生パネルが処理する間は無効にする。
+- 再生項目がない場合はパネルと展開状態を解除する。下部の余白とSnackbarは、Scaffold下部バーの実測高さに合わせる。
+- エピソードから番組へ移る場合は `PodcastLink` を使い、元のタブと一覧位置を残す。行の表示ボタンは再生、補助操作はスワイプ・長押しへ集約する。
 
-再生パネルが戻るを処理する条件は微小な展開率でなく、展開要求とSheetStateの現在/移動先の状態で決める。寸法を捕捉するderivedStateOfは密度・余白・ミニパネル高さの変更で更新する。パネルが戻るを処理する間は背後のキュー詳細のBackHandlerを無効にする。各経路の戻り先と確認範囲は [back-navigation-audit.md](back-navigation-audit.md) を参照する。
+## 更新と読み込み
 
-検索・条件付き更新・取り消し・ドラッグ・ストレージ管理・共有は [library-operations.md](library-operations.md) を参照する。検索と取り消しは `PodcastStore` のトランザクション、HTTP検証は `PodcastHttp` と更新情報テーブル、UIは `Sharing` / `ManagementPage` / `QueueReorderState`、通知は `AppSnackbar` に分ける。
+起動時はDBを表示し、RSS更新は永続JobSchedulerで設定した間隔に行う。手動更新とOPML取り込み直後の取得は即時実行する。通知だけをオンにした番組も更新対象。通知は番組別に既定オフとし、初回取得で過去回を通知しない。
+
+更新の通信は最大3接続、同じ番組は直列化する。RSSはストリーム解析する。画面の初期一覧は最新1,000件、追加500件、番組ページと履歴は150件ずつ読み込む。キュー・お気に入り・保存済み・再生中の回は範囲外でも利用できる。Wi-Fi制限の変更は未完了のDownloadManagerリクエストへ再適用する。
+
+条件付き取得・全文検索・取り消し・ドラッグ・共有・管理画面の詳細は [library-operations.md](library-operations.md)。検索はDBの全文へのSQL問い合わせ、取り消しは進捗とキューを一緒に更新するトランザクションとして扱う。
+
+変更後の検証と画面撮影は [開発・テスト](testing.md) を参照する。

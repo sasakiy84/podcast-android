@@ -33,16 +33,18 @@ GitHub CLI から値を表示せず登録することもできます。Repositor
 
 ## タグでリリースする
 
-Secrets 登録後、テストが通った main のコミットにタグを付けて push します。
+Secrets 登録後、テストが通った main のコミットにタグを付けて push します。例の版番号は未使用のものへ置き換えてください。
 
 ```bash
 git switch main
 ./gradlew testDebugUnitTest lintDebug assembleDebug
-git tag -a v0.1.1 -m 'Android テストアプリ v0.1.1 をリリースする'
+git tag -a v0.1.1 -m 'GalenaCast v0.1.1 をリリースする'
 git push origin v0.1.1
 ```
 
 `vMAJOR.MINOR.PATCH` 形式のタグだけを使います。タグ名が versionName、リリースワークフローの run_number が versionCode になります。配布済みアプリの更新では versionCode が過去の値を上回ることを確認してください。同じワークフローを再実行しても versionCode は変わりません。
+
+既存アプリの更新では `applicationId`（`io.github.sasakiy84.podcast`）と署名鍵を維持します。
 
 ワークフローは Secrets を検査し、UI テスト・release lint を実行して署名付き APK と AAB をビルドします。署名検証後、APK・AAB・R8 mapping・SHA256SUMS を GitHub の 通常のリリース として公開します。失敗したビルドは公開しません。Google Play へのアップロードは行いません。
 

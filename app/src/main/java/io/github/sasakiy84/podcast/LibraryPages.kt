@@ -423,7 +423,6 @@ internal fun EpisodeCard(
         state,
         action,
         swipes,
-        queue = { onQueue(episode) },
         remove = removeFromQueue,
     ) {
         Column(Modifier.fillMaxWidth()) {

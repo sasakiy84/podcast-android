@@ -3,7 +3,6 @@ package io.github.sasakiy84.podcast
 import android.app.Application
 import android.content.ComponentName
 import androidx.core.content.ContextCompat
-import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.PlaybackException
@@ -197,25 +196,8 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
                     repository.configureBackgroundSync()
                     updatePreferences()
                 }
-            PodcastAction.PreviousEpisode ->
-                controller?.let { player ->
-                    if (player.hasPreviousMediaItem()) {
-                        val target = player.getMediaItemAt(player.previousMediaItemIndex).mediaId
-                        viewModelScope.launch {
-                            runOperation {
-                                repository.updateProgress(
-                                    target,
-                                    ListeningProgress(),
-                                    resetCompletion = true,
-                                )
-                                player.seekToPreviousMediaItem()
-                            }
-                        }
-                    }
-                    Unit
-                } ?: Unit
-            PodcastAction.NextEpisode ->
-                controller?.let { if (it.hasNextMediaItem()) it.seekToNextMediaItem() } ?: Unit
+            PodcastAction.PreviousEpisode -> controller?.let(playbackCommands::previous) ?: Unit
+            PodcastAction.NextEpisode -> controller?.let(playbackCommands::next) ?: Unit
             is PodcastAction.Search -> search(action.query, false)
             is PodcastAction.Resolve -> search(action.url, true)
             is PodcastAction.Subscribe -> {
@@ -327,33 +309,15 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
                 }
             PodcastAction.LoadMoreHistory -> launchOperation { repository.loadMoreHistory() }
             is PodcastAction.LoadChapters -> loadChapters(action.episodeId, action.retry)
-            is PodcastAction.PlayChapter -> {
-                val player = controller ?: return
-                viewModelScope.launch {
-                    runOperation {
-                        if (state.value.library.progress[action.episode.id]?.completed == true)
-                            repository.updateProgress(
-                                action.episode.id,
-                                ListeningProgress(action.positionMs, action.episode.durationMs),
-                                resetCompletion = true,
-                            )
-                        if (player.currentMediaItem?.mediaId == action.episode.id) {
-                            seekPlayback(player, action.positionMs)
-                            updatePlayback()
-                        } else {
-                            repository.preferences.edit { remove("active_queue") }
-                            player.setMediaItem(
-                                action.episode.mediaItem(repository, applyStartSkip = false),
-                                action.positionMs,
-                            )
-                            player.prepare()
-                            player.play()
-                            repository.preferences.edit { putString("current", action.episode.id) }
-                            repository.load()
-                        }
-                    }
-                }
-            }
+            is PodcastAction.PlayChapter ->
+                controller?.let {
+                    playbackCommands.playChapter(
+                        it,
+                        action.episode,
+                        action.positionMs,
+                        ::updatePlayback,
+                    )
+                } ?: Unit
             PodcastAction.LoadMoreEpisodes -> launchOperation { repository.loadMoreEpisodes() }
             is PodcastAction.Download -> launchOperation { repository.download(action.episode) }
             is PodcastAction.RemoveDownload ->

@@ -60,16 +60,54 @@ internal class PlaybackCommands(
             val progress = state().library.progress[episode.id] ?: ListeningProgress()
             if (progress.completed)
                 repository.updateProgress(episode.id, ListeningProgress(), resetCompletion = true)
-            repository.preferences.edit { remove("active_queue") }
-            player.setMediaItem(
-                episode.mediaItem(repository),
+            startStandalone(
+                player,
+                episode,
                 playbackStart(episode, progress, repository.settings.options(episode.feedUrl)),
             )
-            player.prepare()
-            player.play()
-            repository.preferences.edit { putString("current", episode.id) }
-            repository.load()
         }
+    }
+
+    fun previous(player: Player): Unit {
+        if (!player.hasPreviousMediaItem()) return
+        val target = player.getMediaItemAt(player.previousMediaItemIndex).mediaId
+        launchOperation {
+            repository.updateProgress(target, ListeningProgress(), resetCompletion = true)
+            player.seekToPreviousMediaItem()
+        }
+    }
+
+    fun next(player: Player): Unit {
+        if (player.hasNextMediaItem()) player.seekToNextMediaItem()
+    }
+
+    fun playChapter(player: Player, episode: Episode, positionMs: Long, onSeek: () -> Unit): Unit {
+        launchOperation {
+            if (state().library.progress[episode.id]?.completed == true)
+                repository.updateProgress(
+                    episode.id,
+                    ListeningProgress(positionMs, episode.durationMs),
+                    resetCompletion = true,
+                )
+            if (player.currentMediaItem?.mediaId == episode.id) {
+                seekPlayback(player, positionMs)
+                onSeek()
+            } else startStandalone(player, episode, positionMs, applyStartSkip = false)
+        }
+    }
+
+    private suspend fun startStandalone(
+        player: Player,
+        episode: Episode,
+        positionMs: Long,
+        applyStartSkip: Boolean = true,
+    ): Unit {
+        repository.preferences.edit { remove("active_queue") }
+        player.setMediaItem(episode.mediaItem(repository, applyStartSkip), positionMs)
+        player.prepare()
+        player.play()
+        repository.preferences.edit { putString("current", episode.id) }
+        repository.load()
     }
 
     suspend fun removeDownload(player: Player?, episode: Episode): Unit {
@@ -83,7 +121,8 @@ internal class PlaybackCommands(
             player?.playbackState?.let { it != Player.STATE_IDLE && it != Player.STATE_ENDED } ==
                 true
         repository.removeDownload(episode)
-        if (replaceSource && player != null && player.currentMediaItem?.mediaId == episode.id) {
+        if (player == null) return
+        if (replaceSource && player.currentMediaItem?.mediaId == episode.id) {
             val updated =
                 episode.mediaItem(
                     repository,
