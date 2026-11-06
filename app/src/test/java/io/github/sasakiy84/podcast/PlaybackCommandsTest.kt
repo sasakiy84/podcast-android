@@ -122,6 +122,28 @@ class PlaybackCommandsTest {
     }
 
     @Test
+    fun clearingTheActiveQueueStopsPlaybackWithoutLosingProgressOrOtherMemberships(): Unit = runBlocking {
+        repository.store.saveQueue("news", "ニュース")
+        repository.store.saveQueue("other", "技術")
+        repository.store.addToQueue("news", first.id)
+        repository.store.addToQueue("other", first.id)
+        repository.load()
+        commands.playQueue(player, "news", null)
+        player.seekTo(12_000)
+        commands.clearQueueAndDownloads(player, "news")
+        synchronizePlaybackQueue(player, repository, repository.library.value)
+        assertEquals(0, player.mediaItemCount)
+        assertFalse(player.playWhenReady)
+        assertFalse(repository.preferences.contains("active_queue"))
+        assertFalse(repository.preferences.contains("current"))
+        assertEquals(12_000L, repository.store.progress(first.id).positionMs)
+        assertFalse(repository.store.progress(first.id).completed)
+        assertTrue(repository.store.queueEpisodeIds("news").isEmpty())
+        assertEquals(listOf(first.id), repository.store.queueEpisodeIds("other"))
+        assertEquals("ニュース", repository.store.queues().first { it.id == "news" }.name)
+    }
+
+    @Test
     fun removingCurrentAudioKeepsTheQueuePositionAndExplicitChapterPolicy(): Unit = runBlocking {
         repository.download(first)
         val manager = context.getSystemService(android.app.DownloadManager::class.java)

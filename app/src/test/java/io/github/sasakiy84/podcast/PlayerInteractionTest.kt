@@ -46,6 +46,7 @@ class PlayerInteractionTest {
         val actions = mutableListOf<PodcastAction>()
         compose.setContent { PodcastApp(state, actions::add) }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithText("すべて").performScrollTo().performClick()
         compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performTouchInput { longClick() }
         compose.onNode(hasText("ダウンロード") and hasAnyAncestor(isPopup())).performClick()
         assertEquals(PodcastAction.Download(episode), actions.last())
@@ -58,6 +59,7 @@ class PlayerInteractionTest {
     @Test fun descriptionsExposeRealLinksAndKeepParagraphBreaks(): Unit {
         compose.setContent { PodcastApp(state) }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithText("すべて").performScrollTo().performClick()
         compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performClick()
         val text = compose.onNodeWithText(episode.description).fetchSemanticsNode().config[SemanticsProperties.Text].single()
         assertTrue(text.text.contains("\n\n"))

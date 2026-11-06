@@ -426,6 +426,10 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
             Unit
         }
 
+    fun clearQueue(id: String): Unit {
+        writableDatabase.delete("queue_entries", "queue_id = ?", arrayOf(id))
+    }
+
     fun addToQueue(queueId: String, episodeId: String): Boolean {
         if (episode(episodeId) == null || progress(episodeId).completed) return false
         if (

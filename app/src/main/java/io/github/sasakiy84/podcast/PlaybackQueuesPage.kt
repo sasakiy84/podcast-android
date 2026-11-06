@@ -45,6 +45,7 @@ internal fun PlaybackQueuesPage(
     var creating by remember { mutableStateOf(false) }
     var queueMenu by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    var clearing by remember { mutableStateOf(false) }
     var ruleEditor by remember { mutableStateOf<QueueRule?>(null) }
     var newRule by remember { mutableStateOf(false) }
     var ruleSettings by rememberSaveable { mutableStateOf(false) }
@@ -347,7 +348,28 @@ internal fun PlaybackQueuesPage(
                     }
             }
         }
+        if (queue != null) {
+            item(key = "clear-queue") {
+                TextButton(
+                    onClick = { clearing = true },
+                    enabled = queue.episodeIds.isNotEmpty(),
+                ) {
+                    Text("キューとローカルデータを削除")
+                }
+            }
+        }
     }
+    if (clearing && queue != null)
+        ConfirmationSheet(
+            "キューと保存音声を削除しますか？",
+            "「${queue.name}」を空にして、登録中のエピソードの保存音声を削除します。ほかのキューと共有している音声も対象です。",
+            "削除",
+            onDismiss = { clearing = false },
+            onConfirm = {
+                action(PodcastAction.ClearQueueAndDownloads(queue.id))
+                clearing = false
+            },
+        )
     if (creating || editingQueue != null)
         QueueNameDialog(
             editingQueue,

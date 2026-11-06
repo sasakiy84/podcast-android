@@ -211,7 +211,7 @@ internal fun EpisodesPage(
             focusSearch = false
         }
     }
-    var filter by rememberSaveable { mutableStateOf(EpisodeFilter.All) }
+    var filter by rememberSaveable { mutableStateOf(EpisodeFilter.Downloaded) }
     val swipes = remember { EpisodeSwipeState() }
     val list = rememberLazyListState()
     val searchList = rememberLazyListState()

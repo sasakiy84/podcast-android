@@ -26,6 +26,7 @@ class PodcastUxTest {
         val actions = mutableListOf<PodcastAction>()
         compose.setContent { PodcastApp(state, actions::add) }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithText("すべて").performScrollTo().performClick()
         val row = compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}")
         row.performTouchInput { swipeLeft() }
         compose.mainClock.advanceTimeBy(200)
@@ -37,11 +38,27 @@ class PodcastUxTest {
         assertEquals(PodcastAction.QuickQueue(episode.id), actions.last())
     }
 
+    @Test fun episodeListStartsWithDownloadsAndKeepsTheChosenFilterAcrossTabs(): Unit {
+        val ui = state.copy(library = state.library.copy(downloads = mapOf(episode.id to EpisodeDownload(1, DownloadStatus.Complete))))
+        compose.setContent { PodcastApp(ui) }
+        compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithText("ダウンロード").assertIsSelected()
+        compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").assertIsDisplayed()
+        compose.onNodeWithContentDescription("エピソード詳細: ${extra.title}").assertDoesNotExist()
+        compose.onNodeWithText("すべて").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("エピソード詳細: ${extra.title}").assertIsDisplayed()
+        compose.onNodeWithContentDescription("タブ: キュー").performClick()
+        compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithText("すべて").assertIsSelected()
+        compose.onNodeWithContentDescription("エピソード詳細: ${extra.title}").assertIsDisplayed()
+    }
+
     @Test fun verticalScrollingDoesNotMarkAnEpisodePlayed(): Unit {
         val actions = mutableListOf<PodcastAction>()
         val episodes = (1..30).map { episode.copy(id = "$it", title = "回$it") }
         compose.setContent { PodcastApp(state.copy(library = state.library.copy(episodes = episodes)), actions::add) }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithText("すべて").performScrollTo().performClick()
         compose.onNodeWithContentDescription("エピソード詳細: 回1").performTouchInput { swipeUp() }
         assertTrue(actions.none { it is PodcastAction.MarkPlayed || it is PodcastAction.Favorite })
         compose.onNodeWithContentDescription("キューに追加: 回1").assertDoesNotExist()
@@ -100,6 +117,7 @@ class PodcastUxTest {
             if (event is PodcastAction.Favorite) ui.value = ui.value.copy(library = ui.value.library.copy(episodes = emptyList(), favorites = emptySet()))
         }) }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithText("すべて").performScrollTo().performClick()
         compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performClick()
         compose.onNodeWithContentDescription("お気に入りを解除").performClick()
         compose.onNodeWithText(episode.description).assertIsDisplayed()

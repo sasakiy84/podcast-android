@@ -97,6 +97,8 @@ sealed interface PodcastAction {
 
     data class DeleteQueue(val id: String) : PodcastAction
 
+    data class ClearQueueAndDownloads(val id: String) : PodcastAction
+
     data class QueueMembership(val queueId: String, val episodeId: String, val included: Boolean) :
         PodcastAction
 

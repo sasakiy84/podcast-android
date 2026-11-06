@@ -111,18 +111,45 @@ internal class PlaybackCommands(
     }
 
     suspend fun removeDownload(player: Player?, episode: Episode): Unit {
+        updateSourceAfterRemovingDownloads(player, episode) {
+            repository.removeDownload(episode)
+            setOf(episode.id)
+        }
+    }
+
+    suspend fun clearQueueAndDownloads(player: Player?, queueId: String): Unit {
+        if (repository.preferences.getString("active_queue", null) == queueId) {
+            val id = player?.currentMediaItem?.mediaId
+            val progress = player?.let {
+                ListeningProgress(it.currentPosition.coerceAtLeast(0), it.duration.coerceAtLeast(0))
+            }
+            repository.preferences.edit { remove("active_queue"); remove("current") }
+            player?.pause()
+            player?.stop()
+            player?.clearMediaItems()
+            if (id != null && progress != null) repository.updateProgress(id, progress)
+        }
+        val episode = state().library.episodes.firstOrNull { it.id == player?.currentMediaItem?.mediaId }
+        updateSourceAfterRemovingDownloads(player, episode) { repository.clearQueueAndDownloads(queueId) }
+    }
+
+    private suspend fun updateSourceAfterRemovingDownloads(
+        player: Player?,
+        episode: Episode?,
+        remove: suspend () -> Set<String>,
+    ): Unit {
         val previous = player?.currentMediaItem
         val replaceSource =
-            previous?.mediaId == episode.id &&
+            episode != null && previous?.mediaId == episode.id &&
                 state().library.downloads[episode.id]?.status == DownloadStatus.Complete
         val position = player?.currentPosition?.coerceAtLeast(0) ?: 0
         val playing = player?.playWhenReady == true
         val prepared =
             player?.playbackState?.let { it != Player.STATE_IDLE && it != Player.STATE_ENDED } ==
                 true
-        repository.removeDownload(episode)
+        val removedIds = remove()
         if (player == null) return
-        if (replaceSource && player.currentMediaItem?.mediaId == episode.id) {
+        if (replaceSource && episode != null && episode.id in removedIds && player.currentMediaItem?.mediaId == episode.id) {
             val updated =
                 episode.mediaItem(
                     repository,

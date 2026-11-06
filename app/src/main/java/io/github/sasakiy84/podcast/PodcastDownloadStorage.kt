@@ -52,7 +52,7 @@ internal class PodcastDownloadStorage(
     }
 
     fun remove(id: String): Unit {
-        store.downloadIds()[id]?.let { manager.remove(it) }
+        store.downloadId(id)?.let { manager.remove(it) }
         downloadFile(id)?.delete()
         store.removeDownload(id)
     }

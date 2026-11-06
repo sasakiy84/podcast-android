@@ -223,6 +223,7 @@ class ScreenCapture {
         icon("一覧に戻る")
 
         tab("エピソード")
+        text("すべて")
         shot("04-episodes")
         text("未再生")
         shot("05-unplayed")

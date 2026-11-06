@@ -73,6 +73,7 @@ class PodcastAppTest {
         val actions = mutableListOf<PodcastAction>()
         compose.setContent { PodcastApp(PodcastUiState(library = library, playback = PlaybackUi(connected = true)), actions::add) }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithText("すべて").performScrollTo().performClick()
         compose.onNodeWithContentDescription("再生: ${episode.title}").performClick()
         compose.waitForIdle()
         assertEquals(PodcastAction.Play(episode), actions.last())

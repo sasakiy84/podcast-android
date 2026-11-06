@@ -19,7 +19,14 @@ import kotlinx.coroutines.flow.drop
 @Composable
 internal fun PlayerHost(episode: Episode?, state: PodcastUiState, action: (PodcastAction) -> Unit, expanded: Boolean, setExpanded: (Boolean) -> Unit,
     navigation: @Composable () -> Unit, queues: () -> Unit, membership: () -> Unit, openPodcast: () -> Unit, content: @Composable (peek: androidx.compose.ui.unit.Dp, playerHandlesBack: Boolean) -> Unit): Unit {
-    if (episode == null) { content(0.dp, false); return }
+    val currentContent by rememberUpdatedState(content)
+    // Keep route state when adding/removing the sheet moves content between layouts.
+    val routeContent = remember {
+        movableContentOf<androidx.compose.ui.unit.Dp, Boolean> { peek, handlesBack ->
+            currentContent(peek, handlesBack)
+        }
+    }
+    if (episode == null) { routeContent(0.dp, false); return }
     val sheet = rememberStandardBottomSheetState(initialValue = SheetValue.PartiallyExpanded, skipHiddenState = true)
     val scaffold = rememberBottomSheetScaffoldState(bottomSheetState = sheet)
     val density = LocalDensity.current
@@ -64,7 +71,7 @@ internal fun PlayerHost(episode: Episode?, state: PodcastUiState, action: (Podca
                     MiniPlayer(episode, state, action, queues) { setExpanded(true) }
                 }
             }
-        }) { content(peek, playerHandlesBack) }
+        }) { routeContent(peek, playerHandlesBack) }
     if (progress < 0.999f) Box(Modifier.align(Alignment.BottomCenter).alpha(1f - progress).onSizeChanged { navigationHeight = it.height }) { navigation() }
     }
 }

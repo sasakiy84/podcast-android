@@ -25,13 +25,27 @@ class EpisodeNavigationTest {
         val ui = mutableStateOf(state.copy(playback = PlaybackUi("1", connected = true)))
         compose.setContent { PodcastApp(ui.value) }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithText("すべて").performScrollTo().performClick()
         val before = compose.onNodeWithTag("episodes-list").fetchSemanticsNode().boundsInRoot.bottom
         compose.runOnIdle { ui.value = state }
+        compose.onNodeWithText("すべて").assertIsSelected()
         val after = compose.onNodeWithTag("episodes-list").fetchSemanticsNode().boundsInRoot.bottom
         val nav = compose.onNodeWithTag("bottom-navigation").fetchSemanticsNode().boundsInRoot
         assertTrue(after - before >= 48f)
         assertEquals(nav.top, after, 1f)
         compose.onNodeWithContentDescription("プレーヤーを開く").assertDoesNotExist()
+    }
+
+    @Test fun queueSelectionSurvivesRemovingItsPlayerAfterClearing(): Unit {
+        val queue = PlaybackQueue("q", "あとで聴く", listOf("1"))
+        val ui = mutableStateOf(state.copy(library = state.library.copy(queues = listOf(queue)), playback = PlaybackUi("1", connected = true)))
+        compose.setContent { PodcastApp(ui.value) }
+        compose.onNodeWithContentDescription("タブ: キュー").performClick()
+        compose.onNodeWithText(queue.name).performClick()
+        compose.runOnIdle { ui.value = ui.value.copy(library = ui.value.library.copy(queues = listOf(queue.copy(episodeIds = emptyList()))), playback = PlaybackUi()) }
+        compose.onNodeWithContentDescription("キュー一覧に戻る").assertIsDisplayed()
+        compose.onNodeWithText("エピソードはまだありません").assertIsDisplayed()
+        compose.onNodeWithText("キューとローカルデータを削除").assertIsNotEnabled()
     }
 
     @Test fun withoutAPlayerMessagesDoNotReserveItsHeight(): Unit {
@@ -44,6 +58,7 @@ class EpisodeNavigationTest {
     @Test fun episodeDetailsOpenThePodcastAndBackRestoresListPosition(): Unit {
         compose.setContent { PodcastApp(state) }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithText("すべて").performScrollTo().performClick()
         compose.onNodeWithTag("episodes-list").performScrollToIndex(19)
         compose.onNodeWithContentDescription("エピソード詳細: エピソード20").performClick()
         compose.onNodeWithContentDescription("番組を開く: ${show.title}").performClick()
@@ -68,6 +83,7 @@ class EpisodeNavigationTest {
     @Test fun episodeRowsExposeOnlyThePlayButton(): Unit {
         compose.setContent { PodcastApp(state.copy(library = state.library.copy(queues = listOf(PlaybackQueue("q", "あとで聴く", listOf("1")))))) }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithText("すべて").performScrollTo().performClick()
         val row = hasContentDescription("エピソード詳細: エピソード1")
         compose.onAllNodes(hasAnyAncestor(row) and hasClickAction()).assertCountEquals(1)
         compose.onNodeWithContentDescription("タブ: キュー").performClick()

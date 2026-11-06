@@ -64,6 +64,7 @@ class PlayerPolishTest {
     @Test fun mixedListsShowCoversWhilePodcastListsDoNot(): Unit {
         compose.setContent { PodcastApp(base) }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithText("すべて").performScrollTo().performClick()
         compose.onNodeWithContentDescription("番組画像: ${show.title}").assertIsDisplayed()
         compose.onNodeWithContentDescription("タブ: ポッドキャスト").performClick()
         compose.onNodeWithContentDescription(show.title).performClick()

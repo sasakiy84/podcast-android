@@ -478,6 +478,20 @@ class PodcastRepository(
             configureBackgroundSync()
         }
 
+    suspend fun clearQueueAndDownloads(id: String): Set<String> =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                val episodes = store.queueEpisodeIds(id).toSet()
+                for (episodeId in episodes) {
+                    store.cancelAutomaticDownload(episodeId)
+                    downloadStorage.remove(episodeId)
+                }
+                store.clearQueue(id)
+                publish()
+                episodes
+            }
+        }
+
     suspend fun setQueueMembership(queueId: String, episodeId: String, included: Boolean): Unit =
         withContext(Dispatchers.IO) {
             mutex.withLock {

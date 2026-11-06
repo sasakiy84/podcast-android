@@ -90,6 +90,72 @@ class PodcastDownloadsTest {
         }
 
     @Test
+    fun clearingAQueueRemovesItsAudioAndReservationsButKeepsRulesHistoryAndOtherDownloads(): Unit = runBlocking {
+        val other = episode.copy(id = "other-download", title = "別の回")
+        val pending = episode.copy(id = "pending-download", title = "待機中の回")
+        val otherFile = File(file.parentFile, "${other.id}.audio")
+        val player = androidx.media3.exoplayer.ExoPlayer.Builder(context).build()
+        try {
+            repository.store.saveFeed(PodcastFeed(podcast, listOf(episode, other)))
+            repository.store.saveQueue("news", "ニュース")
+            repository.store.saveQueue("other", "技術")
+            val rule = QueueRule("news", podcast.feedUrl, autoDownload = true)
+            repository.store.saveRule(rule, false)
+            repository.store.addToQueue("news", episode.id)
+            repository.store.addToQueue("other", episode.id)
+            repository.store.addToQueue("other", other.id)
+            repository.store.setFavorite(episode.id, true)
+            repository.store.saveFeed(PodcastFeed(podcast, listOf(pending)))
+            for ((item, local) in listOf(episode to file, other to otherFile)) {
+                repository.download(item)
+                val id = requireNotNull(repository.store.downloadId(item.id))
+                val request: ShadowDownloadManager.ShadowRequest = Shadow.extract(shadowOf(manager).getRequest(id))
+                request.setStatus(DownloadManager.STATUS_SUCCESSFUL)
+                local.parentFile?.mkdirs()
+                local.writeBytes(byteArrayOf(1, 2, 3))
+            }
+            repository.processAutomaticDownloads()
+            val pendingId = requireNotNull(repository.store.downloadId(pending.id))
+            val otherId = requireNotNull(repository.store.downloadId(other.id))
+            repository.updateProgress(episode.id, ListeningProgress(12_000, 60_000), listened = true)
+            assertTrue(file.isFile)
+            assertTrue(pending.id in repository.store.automaticDownloadIds())
+            repository.preferences.edit().putString("active_queue", "other").commit()
+            player.setMediaItems(listOf(episode.mediaItem(repository, applyStartSkip = false), other.mediaItem(repository)), 0, 12_000)
+            assertEquals(Uri.fromFile(file), player.currentMediaItem!!.localConfiguration!!.uri)
+            val commands = PlaybackCommands(repository, { PodcastUiState(library = repository.library.value) }) { operation -> runBlocking { operation() } }
+            commands.clearQueueAndDownloads(player, "news")
+            assertEquals(Uri.parse(episode.audioUrl), player.currentMediaItem!!.localConfiguration!!.uri)
+            assertEquals(12_000L, player.currentPosition)
+            assertFalse(player.playWhenReady)
+            assertFalse(player.currentMediaItem!!.mediaMetadata.extras!!.getBoolean("apply_start_skip"))
+            assertEquals(2, player.mediaItemCount)
+            assertEquals("other", repository.preferences.getString("active_queue", null))
+            assertTrue(repository.store.queueEpisodeIds("news").isEmpty())
+            assertEquals(listOf(episode.id, other.id), repository.store.queueEpisodeIds("other"))
+            assertEquals("ニュース", repository.store.queues().first { it.id == "news" }.name)
+            assertEquals(listOf(rule), repository.store.rules())
+            assertEquals(12_000L, repository.store.progress(episode.id).positionMs)
+            assertTrue(episode.id in repository.library.value.historyIds)
+            assertTrue(episode.id in repository.library.value.favorites)
+            assertFalse(file.exists())
+            assertTrue(otherFile.isFile)
+            assertNull(shadowOf(manager).getRequest(pendingId))
+            repository.processAutomaticDownloads()
+            assertEquals(mapOf(other.id to otherId), repository.store.downloadIds())
+            assertTrue(repository.store.automaticDownloadIds().isEmpty())
+            repository.store.saveFeed(PodcastFeed(podcast, listOf(pending)))
+            assertTrue(repository.store.queueEpisodeIds("news").isEmpty())
+            val fresh = episode.copy(id = "new-after-clear")
+            repository.store.saveFeed(PodcastFeed(podcast, listOf(fresh)))
+            assertEquals(listOf(fresh.id), repository.store.queueEpisodeIds("news"))
+        } finally {
+            player.release()
+            otherFile.delete()
+        }
+    }
+
+    @Test
     fun manuallyMarkedEpisodeLeavesAllQueuesButKeepsDownloadedAudio(): Unit = runBlocking {
         repository.store.saveQueue("news", "ニュース")
         repository.store.saveQueue("tech", "技術")

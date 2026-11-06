@@ -96,6 +96,7 @@ class LibraryFeatureUiTest {
         withModel(all) { model, _ ->
             assertFalse(model.state.value.library.episodes.any { it.id == "1" })
             compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithText("すべて").performScrollTo().performClick()
             compose.onNodeWithTag("episodes-list").performScrollToIndex(19)
             compose.onNodeWithContentDescription("エピソードを検索").performClick()
             compose.onNodeWithText("タイトル・説明を検索").performTextInput("探索")
@@ -229,6 +230,7 @@ class LibraryFeatureUiTest {
                 )
         }
         compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithText("すべて").performScrollTo().performClick()
         compose.onNodeWithContentDescription("エピソード詳細: ${ep.title}").performTouchInput {
             longClick()
         }
@@ -244,6 +246,28 @@ class LibraryFeatureUiTest {
         compose.onNodeWithText("タイトルをコピー").performClick()
         assertEquals(ep.title, clipboard.primaryClip!!.getItemAt(0).text.toString())
     }
+
+    @Test
+    fun clearingAQueueRequiresConfirmationAndKeepsItsDefinition(): Unit =
+        withModel((1..3).map(::episode)) { model, repo ->
+            compose.onNodeWithContentDescription("タブ: キュー").performClick()
+            compose.onNodeWithText("ニュース").performClick()
+            compose.onNodeWithContentDescription("エピソード詳細: エピソード1").performTouchInput { longClick() }
+            compose.onNodeWithText("キューから外す").performClick()
+            awaitState { model.state.value.undo != null }
+            compose.onNodeWithText("キューとローカルデータを削除").performScrollTo().performClick()
+            compose.onNodeWithText("キューと保存音声を削除しますか？").assertIsDisplayed()
+            screenshot("clear-queue-confirmation")
+            compose.backGesture()
+            compose.runOnIdle { assertEquals(2, repo.store.queueEpisodeIds("a").size) }
+            compose.onNodeWithText("キューとローカルデータを削除").performScrollTo().performClick()
+            compose.onNode(hasText("削除") and hasAnyAncestor(isDialog())).performClick()
+            awaitState { model.state.value.library.queues.first { it.id == "a" }.episodeIds.isEmpty() && model.state.value.undo == null }
+            compose.onNodeWithText("エピソードはまだありません").assertIsDisplayed()
+            compose.onNodeWithText("キューとローカルデータを削除").assertIsNotEnabled()
+            assertEquals(1, events.count { it == PodcastAction.ClearQueueAndDownloads("a") })
+            compose.runOnIdle { assertEquals("ニュース", repo.store.queues().first { it.id == "a" }.name) }
+        }
 
     @Test
     fun managementShowsStorageFailuresAndWifiWaitAndRetriesTheSelectedFeed(): Unit {

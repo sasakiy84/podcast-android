@@ -233,6 +233,11 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             is PodcastAction.SaveQueue ->
                 launchOperation { repository.saveQueue(action.id, action.name, action.episodeId) }
             is PodcastAction.DeleteQueue -> launchOperation { repository.deleteQueue(action.id) }
+            is PodcastAction.ClearQueueAndDownloads ->
+                launchOperation {
+                    pendingUndo?.first?.id?.let(::clearUndo)
+                    playbackCommands.clearQueueAndDownloads(controller, action.id)
+                }
             is PodcastAction.QueueMembership ->
                 launchOperation {
                     if (action.included)
