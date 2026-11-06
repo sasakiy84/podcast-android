@@ -126,17 +126,19 @@ class EpisodeFeaturesTest {
         } finally { repository.store.close(); context.deleteDatabase("podcasts.db") }
     }
 
-    @Test fun automaticSkipsFollowTheCurrentPodcastAndRespectPausedOrExplicitPositions(): Unit {
+    @Test fun automaticSkipsHandleAdvancedQueuePositionsAndRespectPausedOrExplicitPositions(): Unit {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val settings = PlaybackPreferences(context.getSharedPreferences("automatic-skips", Context.MODE_PRIVATE))
-        settings.setOptions(feed, PodcastOptions(skipStartSeconds = 45, skipEndSeconds = 30))
+        settings.setOptions(feed, PodcastOptions(skipStartSeconds = 60, skipEndSeconds = 30))
         fun item(url: String, explicit: Boolean = false) = MediaItem.Builder().setMediaId(url).setMediaMetadata(androidx.media3.common.MediaMetadata.Builder().setExtras(android.os.Bundle().apply { putString("feed_url", url); putBoolean("apply_start_skip", !explicit) }).build()).build()
         var current = item(feed)
-        var position = 0L
+        // A queue transition can be delivered after the next episode has started playing.
+        var position = 250L
+        var duration = 600_000L
         var playing = true
         val fake = Proxy.newProxyInstance(Player::class.java.classLoader, arrayOf(Player::class.java)) { _, method, args -> when (method.name) {
             "getCurrentMediaItem" -> current
-            "getDuration" -> 600_000L
+            "getDuration" -> duration
             "getCurrentPosition" -> position
             "getPlaybackState" -> Player.STATE_READY
             "isPlaying" -> playing
@@ -145,7 +147,10 @@ class EpisodeFeaturesTest {
         } } as Player
         val policy = PlaybackSkipController(fake, settings)
         policy.onMediaItemTransition(current, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
-        assertEquals(45_000L, position)
+        assertEquals(60_000L, position)
+        position = 12_000
+        policy.onPlaybackStateChanged(Player.STATE_READY)
+        assertEquals(12_000L, position)
         position = 569_999; assertFalse(policy.endReached())
         position = 570_000; assertTrue(policy.endReached())
         playing = false; assertFalse(policy.endReached())
@@ -155,9 +160,12 @@ class EpisodeFeaturesTest {
         current = item(feed, explicit = true); position = 0
         policy.onMediaItemTransition(current, Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
         assertEquals(0L, position)
-        current = item(feed); position = 120_000
+        current = item(feed); position = 12_000
         policy.onMediaItemTransition(current, Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED)
-        assertEquals(120_000L, position)
+        assertEquals(12_000L, position)
+        duration = 30_000; position = 29_500
+        policy.onMediaItemTransition(current, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+        assertEquals(29_500L, position)
         policy.close()
     }
 

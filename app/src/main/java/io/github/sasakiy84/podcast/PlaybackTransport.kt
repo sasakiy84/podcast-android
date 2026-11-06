@@ -16,21 +16,25 @@ fun playbackStart(episode: Episode, progress: ListeningProgress, options: Podcas
     return if (position > 0) position else (options.skipStartSeconds * 1000L).coerceAtMost((episode.durationMs - 1000).coerceAtLeast(0).takeIf { episode.durationMs > 0 } ?: Long.MAX_VALUE)
 }
 
-/** End skipping is a playback policy, independent of the screen or media controller. */
+/** Automatic skips are a playback policy, independent of the screen or media controller. */
 class PlaybackSkipController(private val player: Player, private val settings: PlaybackPreferences) : Player.Listener {
-    private var pendingStart = false
+    private var pendingStartReason: Int? = null
     init { player.addListener(this) }
-    override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int): Unit { pendingStart = true; applyStart() }
+    override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int): Unit { pendingStartReason = reason; applyStart() }
     override fun onPlaybackStateChanged(playbackState: Int): Unit { if (playbackState == Player.STATE_READY) applyStart() }
     private fun applyStart(): Unit {
-        if (!pendingStart || player.currentMediaItem == null) return
+        val reason = pendingStartReason ?: return
+        if (player.currentMediaItem == null) return
         val feed = player.currentMediaItem?.mediaMetadata?.extras?.getString("feed_url") ?: return
         if (player.playbackState == Player.STATE_IDLE) return
-        pendingStart = false
+        pendingStartReason = null
         if (player.currentMediaItem?.mediaMetadata?.extras?.getBoolean("apply_start_skip", true) == false) return
-        val start = settings.options(feed).skipStartSeconds * 1000L
         val duration = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
-        if (player.currentPosition == 0L && start > 0) player.seekTo(start.coerceAtMost((duration - 1000).coerceAtLeast(0)))
+        val start = (settings.options(feed).skipStartSeconds * 1000L).coerceAtMost((duration - 1000).coerceAtLeast(0))
+        val position = player.currentPosition
+        // Automatic transitions can be delivered after playback has advanced past zero.
+        // Keep positive resume/seek positions intact for explicitly selected items.
+        if (start > 0 && (position == 0L || (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && position < start))) player.seekTo(start)
     }
     fun endReached(): Boolean {
         if (!player.isPlaying) return false
