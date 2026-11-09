@@ -43,8 +43,8 @@ android {
         applicationId = "io.github.sasakiy84.podcast"
         minSdk = 36
         targetSdk = 36
-        versionCode = providers.gradleProperty("releaseVersionCode").orElse("22").get().toInt()
-        versionName = providers.gradleProperty("releaseVersion").orElse("0.9.5").get()
+        versionCode = providers.gradleProperty("releaseVersionCode").orElse("23").get().toInt()
+        versionName = providers.gradleProperty("releaseVersion").orElse("0.9.6").get()
     }
     signingConfigs.getByName("debug") {
         System.getenv("ANDROID_USER_HOME")?.let { storeFile = file("$it/debug.keystore") }
