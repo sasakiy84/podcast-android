@@ -21,7 +21,7 @@ AndroidX / Compose / Material3 / Media3、Kotlin・コルーチンを基盤に�
 
 ロック対象のclasspathはstrictモード。依存検証はGradleのstrictモードで行い、未知のハッシュを許可する例外は設けない。通常のテスト・ビルドでは固定値を書き換えない。
 
-lintは警告もエラーとして扱う。ただしMaven Centralに新しい版があるかを問い合わせる `NewerVersionAvailable` は除外する。依存の更新は下記のレビュー手順で行い、新版の公開によって同じ固定版のリリースが失敗しないようにする。コードの検査と依存のSHA-256検証は維持する。
+lintは警告もエラーとして扱う。ただしライブラリの新版を知らせる `NewerVersionAvailable` と、Gradle / Android Gradle Pluginの新版を知らせる `AndroidGradlePluginVersion` は除外する。依存の更新は下記のレビュー手順で行い、新版の公開によって同じ固定版のリリースが失敗しないようにする。コード・API互換性の検査と依存のSHA-256検証は維持する。
 
 Robolectric 4.17で使っていたAndroid 16の `android-all-instrumented:16-robolectric-13921718-i7` は、専用の `robolectricSdk` 構成でGradleから取得する。検証したJARを `app/build/verified-test-sdk` に配置し、Robolectricはofflineモードで参照する。Robolectric独自のMavenダウンロードは使わない。
 
