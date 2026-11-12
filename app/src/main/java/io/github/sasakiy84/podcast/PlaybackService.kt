@@ -30,7 +30,11 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate(): Unit {
         super.onCreate()
         setMediaNotificationProvider(androidx.media3.session.DefaultMediaNotificationProvider(this).apply { setSmallIcon(R.drawable.ic_podcast) })
-        val player = ExoPlayer.Builder(this).setSeekBackIncrementMs(15_000).setSeekForwardIncrementMs(30_000).build().apply {
+        val renderers = NormalizingRenderersFactory(this, repository.loudnessProfiles)
+        val player = ExoPlayer.Builder(this, renderers).setSeekBackIncrementMs(15_000).setSeekForwardIncrementMs(30_000).build().apply {
+            trackSelectionParameters = trackSelectionParameters.buildUpon().setAudioOffloadPreferences(
+                androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.Builder()
+                    .setAudioOffloadMode(androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED).build()).build()
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build(), true)
             setHandleAudioBecomingNoisy(true)
             setWakeMode(C.WAKE_MODE_LOCAL)

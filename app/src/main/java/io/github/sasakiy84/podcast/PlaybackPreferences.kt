@@ -11,6 +11,10 @@ class PlaybackPreferences(private val preferences: SharedPreferences) {
     private val keys = java.util.concurrent.ConcurrentHashMap<String, String>()
     private fun key(feed: String): String = keys.getOrPut(feed) { "speed_for:${stableId(feed)}" }
     val wifiOnly: Boolean get() = preferences.getBoolean("wifi_only", false)
+    val normalizeVolume: Boolean get() = preferences.getBoolean("normalize_volume", true)
+    val louderVolume: Boolean get() = preferences.getBoolean("louder_volume", false)
+    fun setNormalizeVolume(enabled: Boolean): Unit = preferences.edit { putBoolean("normalize_volume", enabled) }
+    fun setLouderVolume(enabled: Boolean): Unit = preferences.edit { putBoolean("louder_volume", enabled) }
     val refreshHours: Int get() = preferences.getInt("refresh_hours", 1).takeIf { it in listOf(1, 3, 6, 12, 24) } ?: 1
     val defaultQueue: String get() = preferences.getString("default_queue", null) ?: "default"
     fun setWifiOnly(value: Boolean): Unit = preferences.edit { putBoolean("wifi_only", value) }

@@ -12,6 +12,7 @@
 | 画面と処理の境界 | `PodcastUiState` / `PodcastAction`、`PodcastsViewModel` |
 | 再生開始・再開・前後移動・チャプター・音声削除後の切り替え | `PlaybackCommands` |
 | 再生セッションと履歴の保存 | `PlaybackService` |
+| 音量の自動補正・保存音声の事前解析 | `LoudnessMeter`、`LoudnessNormalizer`、`NormalizingAudioProcessor`、`SavedAudioAnalyzer`、`AudioAnalysisJob`（[処理と検証](audio-normalization.md)） |
 | 再生キュー・速度・シークとスキップ | `PlaybackQueueSynchronizer`、`PlaybackSpeedController`、`PlaybackTransport` |
 | 更新・保存の排他制御とOSへの接続 | `PodcastRepository`、`PodcastDownloadStorage`、`PodcastNotifications`、`PodcastSyncJob` |
 | HTTP取得・番組検索・URL解決 | `PodcastHttp`、`PodcastDirectory` |

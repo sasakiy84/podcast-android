@@ -44,6 +44,7 @@ source /workspace/.android-dev/env.sh
 | --- | --- |
 | 再生方針と端末内の状態 | `PlaybackCommandsTest`: 実ExoPlayerとDBを使い、再開・チャプター・キュー移動・保存音声の削除後の位置や状態を検証 |
 | シーク・自動スキップ・完了順序 | `EpisodeFeaturesTest`、`PlaybackQueueTest`: 停止中シークの失敗、番組設定の誤適用、二重に次へ進む不具合 |
+| 音量補正・保存音声の解析 | `LoudnessNormalizerTest`、`AudioNormalizationIntegrationTest`: 基準音量への収束、倍速後のピーク制限、PCMの分割境界、解析結果の再利用・破棄と失敗時のフォールバック |
 | DB・旧版データ・整理操作 | `PodcastStoreTest`、`PodcastMigrationTest`、`LibraryUndoTest`: データ喪失、複数キューと並行操作の上書き |
 | 更新・解析・URL解決 | `PodcastHttpTest`、`FeedParserTest`、`PodcastDirectoryTest`: 実ループバックHTTPと小さなfixtureで検証 |
 | OSへのダウンロード・通知・画像キャッシュの接続 | `PodcastDownloadsTest`、`ArtworkCacheTest`、`EpisodeFeaturesTest`: 回線制限や取得状態、オフライン利用の誤り |

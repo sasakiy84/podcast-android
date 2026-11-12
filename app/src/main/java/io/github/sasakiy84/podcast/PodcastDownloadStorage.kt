@@ -11,10 +11,12 @@ import java.io.File
 internal class PodcastDownloadStorage(
     private val context: Context,
     private val store: PodcastStore,
+    private val loudnessProfiles: LoudnessProfiles,
 ) {
     private val manager = context.getSystemService(DownloadManager::class.java)
 
     fun enqueue(episode: Episode): Unit {
+        loudnessProfiles.remove(episode.id)
         store.downloadIds()[episode.id]?.let { manager.remove(it) }
         downloadFile(episode.id)?.delete()
         val request =
@@ -52,6 +54,7 @@ internal class PodcastDownloadStorage(
     }
 
     fun remove(id: String): Unit {
+        loudnessProfiles.remove(id)
         store.downloadId(id)?.let { manager.remove(it) }
         downloadFile(id)?.delete()
         store.removeDownload(id)
@@ -72,7 +75,7 @@ internal class PodcastDownloadStorage(
         return if (complete) Uri.fromFile(file) else episode.audioUrl.toUri()
     }
 
-    private fun downloadFile(id: String): File? =
+    fun downloadFile(id: String): File? =
         context.getExternalFilesDir(Environment.DIRECTORY_PODCASTS)?.let { File(it, "$id.audio") }
 
     fun downloads(): Map<String, EpisodeDownload> {

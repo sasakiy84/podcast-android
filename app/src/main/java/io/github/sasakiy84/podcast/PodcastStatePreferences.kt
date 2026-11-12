@@ -5,6 +5,8 @@ internal fun PodcastUiState.withPreferences(settings: PlaybackPreferences): Podc
     copy(
         defaultQueueId = settings.defaultQueue,
         wifiOnly = settings.wifiOnly,
+        normalizeVolume = settings.normalizeVolume,
+        louderVolume = settings.louderVolume,
         refreshHours = settings.refreshHours,
         podcastOptions = library.podcasts.associate { it.feedUrl to settings.options(it.feedUrl) },
         podcastSort = settings.sort,

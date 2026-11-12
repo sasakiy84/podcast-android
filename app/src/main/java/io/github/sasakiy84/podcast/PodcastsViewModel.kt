@@ -36,7 +36,7 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
     private val preferenceListener =
         android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (
-                key in setOf("wifi_only", "refresh_hours", "default_queue") ||
+                key in setOf("wifi_only", "refresh_hours", "default_queue", "normalize_volume", "louder_volume") ||
                     key?.startsWith("option:") == true ||
                     key == "speed" ||
                     key == "podcast_sort" ||
@@ -196,6 +196,14 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
                     repository.configureBackgroundSync()
                     updatePreferences()
                 }
+            is PodcastAction.NormalizeVolume -> {
+                repository.setVolumeNormalization(action.enabled)
+                updatePreferences()
+            }
+            is PodcastAction.LouderVolume -> {
+                repository.settings.setLouderVolume(action.enabled)
+                updatePreferences()
+            }
             PodcastAction.PreviousEpisode -> controller?.let(playbackCommands::previous) ?: Unit
             PodcastAction.NextEpisode -> controller?.let(playbackCommands::next) ?: Unit
             is PodcastAction.Search -> search(action.query, false)

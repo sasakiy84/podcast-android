@@ -15,6 +15,8 @@ data class PlaybackUi(
 data class PodcastUiState(
     val defaultQueueId: String = "default",
     val wifiOnly: Boolean = false,
+    val normalizeVolume: Boolean = true,
+    val louderVolume: Boolean = false,
     val refreshHours: Int = 1,
     val library: Library = Library(),
     val results: List<PodcastCandidate> = emptyList(),
@@ -73,6 +75,10 @@ sealed interface PodcastAction {
     data object RemoveCompletedDownloads : PodcastAction
 
     data class WifiOnly(val enabled: Boolean) : PodcastAction
+
+    data class NormalizeVolume(val enabled: Boolean) : PodcastAction
+
+    data class LouderVolume(val enabled: Boolean) : PodcastAction
 
     data class RefreshInterval(val hours: Int) : PodcastAction
 

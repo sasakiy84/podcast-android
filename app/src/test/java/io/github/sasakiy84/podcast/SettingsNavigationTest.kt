@@ -37,7 +37,7 @@ class SettingsNavigationTest {
 
     @Test
     fun backDismissesTheSpeedSheetBeforeFinishingTheSettingsActivity(): Unit {
-        compose.onNodeWithText("再生速度 1.0×").performClick()
+        compose.onNodeWithText("再生速度 1.0×").performScrollTo().performClick()
         compose.backGesture(cancel = true)
         compose.onNodeWithContentDescription("再生速度を調整").assertIsDisplayed()
         compose.backGesture()
@@ -46,5 +46,19 @@ class SettingsNavigationTest {
         assertFalse(compose.activity.isFinishing)
         compose.backGesture()
         assertTrue(compose.activity.isFinishing)
+    }
+
+    @Test fun normalizationOptionsPersistAndApplyAcrossSettingsRecreation(): Unit {
+        val settings = (org.robolectric.RuntimeEnvironment.getApplication() as PodcastApplication).repository.settings
+        compose.onNodeWithText("音量をそろえる").performScrollTo().assertIsOn()
+        compose.onNodeWithText("大きめ").performClick()
+        compose.runOnIdle { assertTrue(settings.louderVolume) }
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithText("大きめ").performScrollTo().assertIsSelected()
+        compose.onNodeWithText("音量をそろえる").performClick()
+        compose.runOnIdle { assertFalse(settings.normalizeVolume) }
+        compose.onNodeWithText("大きめ").assertDoesNotExist()
+        compose.onNodeWithText("音量をそろえる").performClick()
+        compose.onNodeWithText("大きめ").assertIsSelected()
     }
 }

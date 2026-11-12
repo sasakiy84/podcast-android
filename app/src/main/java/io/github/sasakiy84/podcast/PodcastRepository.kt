@@ -8,6 +8,7 @@ import coil.imageLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -24,17 +25,96 @@ class PodcastRepository(
     val preferences: android.content.SharedPreferences =
         context.getSharedPreferences("playback", Context.MODE_PRIVATE)
     val settings = PlaybackPreferences(preferences)
+    internal val loudnessProfiles = LoudnessProfiles(context, settings)
     private var episodeLimit = 1000
     private var historyLimit = 150
     private val notifications = PodcastNotifications(context)
     private val refreshPermits = kotlinx.coroutines.sync.Semaphore(3)
     private val feedRefreshLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
-    private val downloadStorage = PodcastDownloadStorage(context, store)
+    private val downloadStorage = PodcastDownloadStorage(context, store, loudnessProfiles)
+    private val analysisMutex = Mutex()
     private val mutex = Mutex()
     private val mutableLibrary = MutableStateFlow(Library())
     val library: StateFlow<Library> = mutableLibrary
 
     suspend fun load(): Unit = withContext(Dispatchers.IO) { mutex.withLock { publish() } }
+
+    fun setVolumeNormalization(enabled: Boolean): Unit {
+        settings.setNormalizeVolume(enabled)
+        AudioAnalysisJob.schedule(context)
+    }
+
+    /** One worker, one file at a time. Deletion/re-download wins over an in-flight analysis. */
+    internal suspend fun analyzeDownloadedAudio(): Boolean =
+        withContext(Dispatchers.IO) {
+            analysisMutex.withLock analysis@{
+                val deadline = android.os.SystemClock.elapsedRealtime() + 120_000
+                val candidates = mutex.withLock { pendingAudioAnalyses() }
+                for (candidate in candidates) {
+                    coroutineContext.ensureActive()
+                    if (!settings.normalizeVolume) return@analysis false
+                    if (android.os.SystemClock.elapsedRealtime() >= deadline) return@analysis true
+                    val valid =
+                        mutex.withLock {
+                            store.downloadId(candidate.id) == candidate.managerId &&
+                                candidate.file.isFile &&
+                                candidate.file.length() == candidate.size &&
+                                candidate.file.lastModified() == candidate.modified
+                        }
+                    if (!valid) continue
+                    val level =
+                        try {
+                            kotlinx.coroutines.withTimeoutOrNull(120_000) {
+                                analyzeSavedAudio(candidate.file)
+                            }
+                        } catch (error: kotlinx.coroutines.CancellationException) {
+                            throw error
+                        } catch (error: android.media.MediaCodec.CodecException) {
+                            if (error.isTransient || error.isRecoverable) return@analysis true
+                            null
+                        } catch (_: java.io.IOException) {
+                            null
+                        } catch (_: SecurityException) {
+                            null
+                        } catch (_: IllegalArgumentException) {
+                            null
+                        } catch (_: IllegalStateException) {
+                            null
+                        }
+                    mutex.withLock {
+                        if (
+                            store.downloadId(candidate.id) == candidate.managerId &&
+                                candidate.file.isFile &&
+                                candidate.file.length() == candidate.size &&
+                                candidate.file.lastModified() == candidate.modified
+                        ) {
+                            loudnessProfiles.save(candidate.id, candidate.file, level)
+                        }
+                    }
+                }
+                mutex.withLock { pendingAudioAnalyses().isNotEmpty() }
+            }
+        }
+
+    private data class AnalysisCandidate(
+        val id: String,
+        val managerId: Long,
+        val file: java.io.File,
+        val size: Long,
+        val modified: Long,
+    )
+
+    private fun pendingAudioAnalyses(): List<AnalysisCandidate> =
+        downloads().mapNotNull { (id, info) ->
+            val file = downloadStorage.downloadFile(id)
+            if (
+                info.status == DownloadStatus.Complete &&
+                    file != null &&
+                    loudnessProfiles.needsAnalysis(id, file)
+            ) {
+                AnalysisCandidate(id, info.managerId, file, file.length(), file.lastModified())
+            } else null
+        }
 
     suspend fun search(query: String): List<PodcastCandidate> =
         withContext(Dispatchers.IO) { directory.search(query) }
@@ -590,6 +670,16 @@ class PodcastRepository(
             store
                 .library(episodeLimit, preferences.getString("current", null), historyLimit)
                 .copy(downloads = downloads())
+        if (
+            settings.normalizeVolume &&
+                mutableLibrary.value.downloads.any { (id, info) ->
+                    info.status == DownloadStatus.Complete &&
+                        downloadStorage.downloadFile(id)?.let {
+                            loudnessProfiles.needsAnalysis(id, it)
+                        } == true
+                }
+        )
+            AudioAnalysisJob.schedule(context)
     }
 
     private fun downloads(): Map<String, EpisodeDownload> = downloadStorage.downloads()

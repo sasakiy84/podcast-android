@@ -97,6 +97,20 @@ internal fun SettingsPage(
                     Text("Wi-Fi のみでダウンロード", Modifier.weight(1f))
                     Switch(state.wifiOnly, null)
                 }
+                Row(
+                    Modifier.fillMaxWidth().toggleable(state.normalizeVolume, role = Role.Switch,
+                        onValueChange = { action(PodcastAction.NormalizeVolume(it)) }),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("音量をそろえる", Modifier.weight(1f))
+                    Switch(state.normalizeVolume, null)
+                }
+                if (state.normalizeVolume) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = !state.louderVolume, onClick = { action(PodcastAction.LouderVolume(false)) }, label = { Text("標準") })
+                        FilterChip(selected = state.louderVolume, onClick = { action(PodcastAction.LouderVolume(true)) }, label = { Text("大きめ") })
+                    }
+                }
                 Text("更新間隔", style = MaterialTheme.typography.titleMedium)
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
