@@ -23,6 +23,7 @@ data class PodcastUiState(
     val searching: Boolean = false,
     val searchError: String? = null,
     val searched: Boolean = false,
+    val podcastPreview: PodcastPreview? = null,
     val refreshing: Boolean = false,
     val opmlBusy: Boolean = false,
     val refreshCompleted: Int = 0,
@@ -95,6 +96,8 @@ sealed interface PodcastAction {
     data class Resolve(val url: String) : PodcastAction
 
     data class Subscribe(val candidate: PodcastCandidate) : PodcastAction
+
+    data class PreviewPodcast(val feedUrl: String, val retry: Boolean = false) : PodcastAction
 
     data class Unsubscribe(val podcast: Podcast) : PodcastAction
 

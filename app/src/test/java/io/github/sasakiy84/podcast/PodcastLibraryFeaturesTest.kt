@@ -23,6 +23,28 @@ import org.robolectric.annotation.Config
 class PodcastLibraryFeaturesTest {
     private val show = Podcast("https://example.org/rss", "番組", website = "https://example.org/")
 
+    @Test fun previewReadsTheFeedWithoutSavingSubscriptionsEpisodesOrJobs(): Unit = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        context.deleteDatabase("podcasts.db")
+        val directory = PodcastDirectory {
+            WebResponse(it, """<rss><channel><title>番組</title><description>詳しい説明</description><item><title>最新の回</title><enclosure url="https://example.org/one.mp3"/></item></channel></rss>""", "application/rss+xml")
+        }
+        val repository = PodcastRepository(context, directory)
+        try {
+            val jobs = context.getSystemService(android.app.job.JobScheduler::class.java).allPendingJobs.map { it.id }.toSet()
+            val preview = repository.previewPodcast(show.feedUrl)
+            assertEquals("詳しい説明", preview.podcast.description)
+            assertEquals("最新の回", preview.episodes.single().title)
+            assertTrue(repository.store.library().podcasts.isEmpty())
+            assertTrue(repository.store.library().episodes.isEmpty())
+            assertTrue(repository.store.downloadIds().isEmpty())
+            assertEquals(jobs, context.getSystemService(android.app.job.JobScheduler::class.java).allPendingJobs.map { it.id }.toSet())
+            repository.subscribe(PodcastCandidate(show))
+            assertEquals(preview.podcast, repository.store.podcast(show.feedUrl))
+            assertEquals(preview.episodes.single().id, repository.store.library().episodes.single().id)
+        } finally { repository.store.close(); context.deleteDatabase("podcasts.db") }
+    }
+
     private fun episode(i: Int, feed: String = show.feedUrl): Episode =
         Episode(
             "$feed:$i",

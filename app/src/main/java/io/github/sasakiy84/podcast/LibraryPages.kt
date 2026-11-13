@@ -108,20 +108,10 @@ internal fun PodcastDetails(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Cover(podcast.artwork, podcast.title, Modifier.size(104.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CopyableText(podcast.title, style = MaterialTheme.typography.titleLarge)
-                    CopyableText(podcast.author, style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        "${state.library.episodeCounts[podcast.feedUrl] ?: page?.total ?: episodes.size} エピソード",
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                }
-            }
+            PodcastHeader(
+                podcast,
+                state.library.episodeCounts[podcast.feedUrl] ?: page?.total ?: episodes.size,
+            )
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -129,9 +119,7 @@ internal fun PodcastDetails(
                     Text("再生速度 ${state.podcastSpeeds[podcast.feedUrl] ?: state.globalSpeed}×")
                 }
                 TextButton(onClick = { sourceMenu = true }) { Text("購読元") }
-                IconButton(onClick = { settingsMenu = true }) {
-                    Icon(AppIcons.Settings, "番組の設定")
-                }
+                IconButton(onClick = { settingsMenu = true }) { Icon(AppIcons.Settings, "番組の設定") }
             }
         }
         if (podcast.description.isNotBlank()) item { CollapsibleDescription(podcast.description) }
@@ -416,13 +404,7 @@ internal fun EpisodeCard(
             .setPrimaryClip(android.content.ClipData.newPlainText("エピソード", episode.title))
     }
     val playing = state.playback.episodeId == episode.id && state.playback.playing
-    EpisodeSwipeActions(
-        episode,
-        state,
-        action,
-        swipes,
-        remove = removeFromQueue,
-    ) {
+    EpisodeSwipeActions(episode, state, action, swipes, remove = removeFromQueue) {
         Column(Modifier.fillMaxWidth()) {
             Row(
                 Modifier.fillMaxWidth()
@@ -615,7 +597,12 @@ internal fun EpisodeCard(
 }
 
 @Composable
-internal fun SearchPage(state: PodcastUiState, action: (PodcastAction) -> Unit): Unit {
+internal fun SearchPage(
+    state: PodcastUiState,
+    action: (PodcastAction) -> Unit,
+    open: (PodcastCandidate) -> Unit,
+    subscribe: (PodcastCandidate) -> Unit,
+): Unit {
     var input by rememberSaveable { mutableStateOf("") }
     var byUrl by rememberSaveable { mutableStateOf(false) }
     val focus = LocalFocusManager.current
@@ -684,6 +671,7 @@ internal fun SearchPage(state: PodcastUiState, action: (PodcastAction) -> Unit):
             if (state.searched) EmptyState("番組が見つかりませんでした", "別の番組名で検索してください。")
         } else
             LazyColumn(
+                modifier = Modifier.testTag("podcast-search-results"),
                 contentPadding = PaddingValues(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -696,7 +684,10 @@ internal fun SearchPage(state: PodcastUiState, action: (PodcastAction) -> Unit):
                     val subscribed = state.library.podcasts.any { it.feedUrl == p.feedUrl }
                     Column {
                         Row(
-                            Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                            Modifier.fillMaxWidth()
+                                .clickable { open(candidate) }
+                                .semantics { contentDescription = "番組を開く: ${p.title}" }
+                                .padding(vertical = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -727,11 +718,13 @@ internal fun SearchPage(state: PodcastUiState, action: (PodcastAction) -> Unit):
                                 )
                             }
                             TextButton(
-                                onClick = { action(PodcastAction.Subscribe(candidate)) },
-                                enabled = !subscribed && p.feedUrl !in state.busyFeeds,
+                                onClick = {
+                                    if (subscribed) open(candidate) else subscribe(candidate)
+                                },
+                                enabled = p.feedUrl !in state.busyFeeds,
                             ) {
                                 Text(
-                                    if (subscribed) "登録済み"
+                                    if (subscribed) "開く"
                                     else if (p.feedUrl in state.busyFeeds) "登録中…" else "登録する"
                                 )
                             }

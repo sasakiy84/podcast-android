@@ -122,6 +122,10 @@ class PodcastRepository(
     suspend fun resolve(url: String): List<PodcastCandidate> =
         withContext(Dispatchers.IO) { directory.resolve(url) }
 
+    /** Reading a search result must not subscribe, notify, or enqueue downloads. */
+    suspend fun previewPodcast(feedUrl: String): PodcastFeed =
+        withContext(Dispatchers.IO) { requireNotNull(fetch(feedUrl, FeedValidators()).feed) }
+
     suspend fun importOpml(uri: Uri): OpmlImportResult =
         withContext(Dispatchers.IO) {
             val subscriptions =

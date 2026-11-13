@@ -31,12 +31,20 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
     private var pendingUndo: Pair<UndoNotice, LibraryUndo>? = null
     private var undoTimer: Job? = null
     private var searchJob: Job? = null
+    private var previewJob: Job? = null
     private val podcastLoads = mutableSetOf<String>()
     private var searchGeneration: Long = 0
     private val preferenceListener =
         android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (
-                key in setOf("wifi_only", "refresh_hours", "default_queue", "normalize_volume", "louder_volume") ||
+                key in
+                    setOf(
+                        "wifi_only",
+                        "refresh_hours",
+                        "default_queue",
+                        "normalize_volume",
+                        "louder_volume",
+                    ) ||
                     key?.startsWith("option:") == true ||
                     key == "speed" ||
                     key == "podcast_sort" ||
@@ -208,6 +216,7 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             PodcastAction.NextEpisode -> controller?.let(playbackCommands::next) ?: Unit
             is PodcastAction.Search -> search(action.query, false)
             is PodcastAction.Resolve -> search(action.url, true)
+            is PodcastAction.PreviewPodcast -> previewPodcast(action.feedUrl, action.retry)
             is PodcastAction.Subscribe -> {
                 val feed = action.candidate.podcast.feedUrl
                 if (feed in state.value.busyFeeds) return
@@ -525,6 +534,42 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             }
     }
 
+    private fun previewPodcast(feedUrl: String, retry: Boolean): Unit {
+        if (!retry && state.value.podcastPreview?.feedUrl == feedUrl) return
+        previewJob?.cancel()
+        mutableState.update { it.copy(podcastPreview = PodcastPreview(feedUrl)) }
+        previewJob =
+            viewModelScope.launch {
+                val failure =
+                    runOperation(showError = false) {
+                        val feed = repository.previewPodcast(feedUrl)
+                        mutableState.update {
+                            it.copy(
+                                podcastPreview =
+                                    PodcastPreview(
+                                        feedUrl,
+                                        feed.copy(
+                                            episodes =
+                                                feed.episodes
+                                                    .sortedByDescending(Episode::published)
+                                                    .take(50)
+                                        ),
+                                        feed.episodes.size,
+                                        loading = false,
+                                    )
+                            )
+                        }
+                    }
+                if (failure != null)
+                    mutableState.update {
+                        it.copy(
+                            podcastPreview =
+                                PodcastPreview(feedUrl, loading = false, error = failure)
+                        )
+                    }
+            }
+    }
+
     private suspend fun refresh(): Unit {
         mutableState.update { it.copy(refreshing = true, refreshCompleted = 0, refreshTotal = 0) }
         try {
@@ -551,7 +596,7 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun launchOperation(block: suspend () -> Unit): Unit {
-        viewModelScope.launch { runOperation(block) }
+        viewModelScope.launch { runOperation(block = block) }
     }
 
     private fun loadChapters(id: String, retry: Boolean): Unit {
@@ -630,7 +675,10 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private suspend fun runOperation(block: suspend () -> Unit): String? {
+    private suspend fun runOperation(
+        showError: Boolean = true,
+        block: suspend () -> Unit,
+    ): String? {
         val failure =
             try {
                 block()
@@ -648,7 +696,7 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             } catch (_: SecurityException) {
                 "ダウンロードを開始できません。端末のストレージ設定を確認してください。"
             }
-        if (failure != null) mutableState.update { it.copy(message = failure) }
+        if (showError && failure != null) mutableState.update { it.copy(message = failure) }
         return failure
     }
 

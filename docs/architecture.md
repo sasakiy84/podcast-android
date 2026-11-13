@@ -5,6 +5,7 @@
 | 変更する対象 | 主な実装 |
 | --- | --- |
 | タブ・番組詳細・エピソード詳細・スクロール状態 | `PodcastApp`、`LibraryPages`、`EpisodeDetailsSheet` |
+| 未登録番組の閲覧と登録への導線 | `PodcastPreviewPage`、`PodcastHeader`、`PodcastRepository.previewPodcast` |
 | 再生パネルと戻る操作 | `PlayerHost`（`PlayerSheet.kt`）、`PlayerPage` |
 | 設定と保存容量・更新結果 | `SettingsActivity`、`ManagementPage` |
 | 共有・操作の取り消し通知 | `Sharing`、`AppSnackbar` |

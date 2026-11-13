@@ -35,6 +35,8 @@ v0.8.1の不具合分析と経路一覧に、v0.9.0で追加した経路を追�
 | 再生画面の開閉アニメーション中 | 展開要求・currentValue・targetValueを見て再生画面が処理。背後は戻さない | 実装: `playerHandlesBack` を共用。指に追従する開閉は既存の操作テストでも検証 |
 | 再生項目が消える | パネルを除去し、その後は現在のページが処理 | 実装: `PodcastApp` の `LaunchedEffect(current?.id)`、既存のパネル除去テスト |
 | エピソード／キュー／検索タブのルート | 番組タブ。キャンセルでは選択タブを保持 | 自動: `tabsReturnToLibraryAndOnlyItsRootDelegatesBackToTheOs` |
+| 検索結果 → 未登録番組のプレビュー | 元の検索語・一覧位置へ戻る。復元後やキャンセルでもプレビューを保持 | 自動: `SearchNavigationTest.browsingAndBackPreserveSearchAndNeverSubscribe` |
+| 検索結果 → 登録 → 番組詳細、登録済み結果 → 番組詳細 | 検索結果へ戻る。既存番組を開く操作では再登録しない | 自動: `SearchNavigationTest.registeringFromResultsOpensDetailsOnlyAfterSuccessAndRegisteredRowsReopenThem` |
 | 番組タブのルート | アプリのハンドラーは無効。終了・バックグラウンド化はOSに委ねる | 自動: 同テストで `hasEnabledCallbacks == false` を確認 |
 | 番組詳細 → 購読元シート | シートだけを閉じ、番組詳細を保持 | 自動: `podcastSheetsAndNestedRuleEditorReturnOneLevelWithoutCommitting` |
 | 番組詳細 → 番組別速度シート | 同上。閉じるだけで速度変更を送信しない | 自動: 同上 |

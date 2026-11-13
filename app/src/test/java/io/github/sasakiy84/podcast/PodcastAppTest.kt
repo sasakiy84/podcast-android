@@ -65,7 +65,7 @@ class PodcastAppTest {
         compose.onNodeWithText("番組名・配信者を確認して登録してください。").assertIsDisplayed()
         compose.onNodeWithText("登録する").performClick()
         compose.waitForIdle()
-        assertEquals(PodcastAction.Subscribe(candidate), actions.last())
+        assertEquals(listOf(PodcastAction.Subscribe(candidate)), actions.filterIsInstance<PodcastAction.Subscribe>())
     }
 
     @Test

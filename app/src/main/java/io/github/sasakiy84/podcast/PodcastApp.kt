@@ -49,6 +49,12 @@ fun PodcastApp(
                 if (initialFeedUrl != null) selectedFeed = initialFeedUrl
             }
             val selected = state.library.podcasts.firstOrNull { it.feedUrl == selectedFeed }
+            val candidate = state.results.firstOrNull { it.podcast.feedUrl == selectedFeed }
+            val selectedPodcast = selected ?: candidate?.podcast
+            val subscribe: (PodcastCandidate) -> Unit = {
+                selectedFeed = it.podcast.feedUrl
+                onAction(PodcastAction.Subscribe(it))
+            }
             val knownEpisodes =
                 remember(
                     state.library.episodes,
@@ -65,7 +71,9 @@ fun PodcastApp(
             val bottomClearance = with(LocalDensity.current) { bottomBarHeight.toDp() }
             LaunchedEffect(current?.id) { if (current == null) playerExpanded = false }
             val snackbar = rememberAppSnackbar(state, onAction)
-            BackHandler(enabled = playerExpanded || selected != null || tab != HomeTab.Library) {
+            BackHandler(
+                enabled = playerExpanded || selectedPodcast != null || tab != HomeTab.Library
+            ) {
                 if (playerExpanded) playerExpanded = false
                 else if (selectedFeed != null) selectedFeed = null else tab = HomeTab.Library
             }
@@ -132,14 +140,14 @@ fun PodcastApp(
                             TopAppBar(
                                 title = {
                                     Text(
-                                        selected?.title ?: tab.label,
+                                        selectedPodcast?.title ?: tab.label,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         fontWeight = FontWeight.Bold,
                                     )
                                 },
                                 navigationIcon = {
-                                    if (selected != null)
+                                    if (selectedPodcast != null)
                                         IconButton(onClick = { selectedFeed = null }) {
                                             Icon(AppIcons.ArrowBack, "一覧に戻る")
                                         }
@@ -175,7 +183,7 @@ fun PodcastApp(
                                             else Icon(AppIcons.Refresh, "番組を更新")
                                         }
                                     }
-                                    if (tab == HomeTab.Library && selected == null)
+                                    if (tab == HomeTab.Library && selectedPodcast == null)
                                         Box {
                                             IconButton(
                                                 onClick = { libraryMenu = true },
@@ -253,6 +261,12 @@ fun PodcastApp(
                                             episodeDetails = it.id
                                         }
                                     }
+                                candidate != null ->
+                                    routeStates.SaveableStateProvider(
+                                        "preview:${candidate.podcast.feedUrl}"
+                                    ) {
+                                        PodcastPreviewPage(candidate, state, onAction, subscribe)
+                                    }
                                 tab == HomeTab.Library ->
                                     routeStates.SaveableStateProvider("library") {
                                         PodcastLibrary(
@@ -288,7 +302,12 @@ fun PodcastApp(
                                     }
                                 else ->
                                     routeStates.SaveableStateProvider("search") {
-                                        SearchPage(state, onAction)
+                                        SearchPage(
+                                            state,
+                                            onAction,
+                                            open = { selectedFeed = it.podcast.feedUrl },
+                                            subscribe = subscribe,
+                                        )
                                     }
                             }
                         }

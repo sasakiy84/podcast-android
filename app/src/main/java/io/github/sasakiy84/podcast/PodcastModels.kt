@@ -43,6 +43,14 @@ data class PodcastFeed(val podcast: Podcast, val episodes: List<Episode>)
 
 data class PodcastCandidate(val podcast: Podcast, val source: String = "Apple Podcasts")
 
+data class PodcastPreview(
+    val feedUrl: String,
+    val feed: PodcastFeed? = null,
+    val total: Int = 0,
+    val loading: Boolean = true,
+    val error: String? = null,
+)
+
 data class ListeningProgress(
     val positionMs: Long = 0,
     val durationMs: Long = 0,
