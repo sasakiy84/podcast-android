@@ -46,9 +46,13 @@ class PlaybackSkipController(private val player: Player, private val settings: P
 }
 
 /** Advance before publishing completion, so queue synchronization cannot advance twice. */
-internal suspend fun finishSkippedEpisode(player: Player, complete: suspend (String, Long) -> Unit): Unit {
+internal suspend fun finishSkippedEpisode(player: Player, continueQueue: Boolean = false, complete: suspend (String, Long) -> Unit): Unit {
     val id = player.currentMediaItem?.mediaId ?: return
     val duration = player.duration
-    if (player.hasNextMediaItem()) player.seekToNextMediaItem() else { player.pause(); player.seekTo(duration) }
+    // Preserve the queue's playback request for fallback; standalone playback stops.
+    if (player.hasNextMediaItem()) player.seekToNextMediaItem() else {
+        if (!continueQueue) player.pause()
+        player.seekTo(duration)
+    }
     complete(id, duration)
 }

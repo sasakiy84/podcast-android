@@ -202,13 +202,12 @@ class PodcastDownloadsTest {
     }
 
     @Test
-    fun finishingPlaybackRemovesAudioAndDownloadRecordButKeepsHistoryAndFavorite(): Unit =
+    fun finishingPlaybackRemovesUnstarredAudioButKeepsHistory(): Unit =
         runBlocking {
             repository.store.saveQueue("news", "ニュース")
             repository.store.saveQueue("tech", "技術")
             repository.store.addToQueue("news", episode.id)
             repository.store.addToQueue("tech", episode.id)
-            repository.setFavorite(episode.id, true)
             repository.download(episode)
             file.parentFile?.mkdirs()
             file.writeBytes(byteArrayOf(1, 2, 3))
@@ -225,13 +224,60 @@ class PodcastDownloadsTest {
             assertTrue(repository.library.value.downloads.isEmpty())
             assertEquals(0, shadowOf(manager).requestCount)
             assertTrue(repository.store.queues().all { it.episodeIds.isEmpty() })
-            assertTrue(episode.id in repository.library.value.favorites)
             assertEquals(listOf(episode.id), repository.library.value.historyIds)
             assertTrue(repository.store.progress(episode.id).completed)
             assertEquals(Uri.parse(episode.audioUrl), repository.audioUri(episode))
             repository.load()
             assertTrue(repository.library.value.downloads.isEmpty())
         }
+
+    @Test
+    fun favoriteAudioRemainsLocalAfterCompletionAndReloading(): Unit = runBlocking {
+        repository.setFavorite(episode.id, true)
+        repository.download(episode)
+        val id = requireNotNull(repository.store.downloadId(episode.id))
+        val request: ShadowDownloadManager.ShadowRequest = Shadow.extract(shadowOf(manager).getRequest(id))
+        request.setStatus(DownloadManager.STATUS_SUCCESSFUL)
+        file.parentFile?.mkdirs()
+        file.writeBytes(byteArrayOf(1, 2, 3))
+        repository.updateProgress(episode.id, ListeningProgress(100, 100, true), listened = true, finished = true)
+        repository.store.close()
+        repository = PodcastRepository(context)
+        repository.load()
+        assertTrue(file.isFile)
+        assertEquals(id, repository.store.downloadId(episode.id))
+        assertTrue(episode.id in repository.library.value.favorites)
+        assertTrue(repository.store.progress(episode.id).completed)
+        assertEquals(Uri.fromFile(file), repository.audioUri(episode))
+    }
+
+    @Test
+    fun downloadOrderSurvivesReloadingAndRedownloadMovesTheEpisodeToTheFront(): Unit = runBlocking {
+        val newer = episode.copy(id = "newer", title = "Episode newer", published = 100)
+        val newerFile = File(file.parentFile, "${newer.id}.audio")
+        repository.store.saveFeed(PodcastFeed(podcast, listOf(newer)))
+        try {
+            for ((item, local) in listOf(newer to newerFile, episode to file)) {
+                repository.download(item)
+                val request: ShadowDownloadManager.ShadowRequest = Shadow.extract(shadowOf(manager).getRequest(requireNotNull(repository.store.downloadId(item.id))))
+                request.setStatus(DownloadManager.STATUS_SUCCESSFUL)
+                local.parentFile?.mkdirs()
+                local.writeBytes(byteArrayOf(1))
+            }
+            repository.store.close()
+            repository = PodcastRepository(context)
+            repository.load()
+            assertEquals(listOf(episode.id, newer.id), repository.management().downloads.map { it.episode.id })
+            val found = repository.store.searchEpisodes("Episode", EpisodeFilter.Downloaded, limit = 1)
+            assertEquals(listOf(episode.id), found.episodes.map { it.id })
+            assertTrue(found.hasMore)
+            assertTrue(repository.library.value.downloads.getValue(episode.id).downloadOrder > repository.library.value.downloads.getValue(newer.id).downloadOrder)
+            repository.removeDownload(newer)
+            repository.download(newer)
+            val foundAgain = repository.store.searchEpisodes("Episode", EpisodeFilter.Downloaded, limit = 1)
+            assertEquals(listOf(newer.id), foundAgain.episodes.map { it.id })
+        } finally { newerFile.delete() }
+    }
 
     @Test
     fun finishedLocalAudioCanBeReplayedFromTheNetworkWithoutAnActiveQueue(): Unit = runBlocking {

@@ -379,7 +379,7 @@ class PodcastRepository(
                             compareBy<ManagedDownload> {
                                     it.download.status == DownloadStatus.Complete
                                 }
-                                .thenByDescending { it.episode.published }
+                                .thenByDescending { it.download.downloadOrder }
                         ),
                 )
             }
@@ -535,7 +535,8 @@ class PodcastRepository(
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 store.saveProgress(id, progress, resetCompletion, listened)
-                if (finished && progress.completed) downloadStorage.remove(id)
+                if (finished && progress.completed && !store.isFavorite(id))
+                    downloadStorage.remove(id)
                 publish()
             }
         }

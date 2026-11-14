@@ -48,6 +48,92 @@ class PlaybackCommandsTest {
     }
 
     @Test
+    fun queueCompletionUsesDefaultThenOtherQueuesAndStopsWithoutReplaying(): Unit = runBlocking {
+        val third = first.copy(id = "three", title = "第三回")
+        val fourth = first.copy(id = "four", title = "第四回")
+        repository.store.saveFeed(PodcastFeed(show, listOf(third, fourth)))
+        for (id in listOf("news", "other", "default")) repository.store.saveQueue(id, id)
+        repository.store.addToQueue("news", first.id)
+        repository.store.addToQueue("other", first.id)
+        repository.store.addToQueue("other", third.id)
+        repository.store.addToQueue("other", fourth.id)
+        repository.store.addToQueue("default", second.id)
+        repository.settings.setOptions(show.feedUrl, PodcastOptions(skipStartSeconds = 45))
+        repository.updateProgress(second.id, ListeningProgress(90_000, second.durationMs))
+        repository.load()
+        commands.playQueue(player, "news", null)
+        suspend fun finish(episode: Episode) {
+            repository.updateProgress(
+                episode.id,
+                ListeningProgress(episode.durationMs, episode.durationMs, true),
+                finished = true,
+            )
+            synchronizePlaybackQueue(player, repository, repository.library.value)
+        }
+        finish(first)
+        assertEquals("default", repository.preferences.getString("active_queue", null))
+        assertEquals(second.id, player.currentMediaItem?.mediaId)
+        assertEquals(90_000L, player.currentPosition)
+        assertTrue(player.playWhenReady)
+        synchronizePlaybackQueue(player, repository, repository.library.value)
+        assertEquals(second.id, player.currentMediaItem?.mediaId)
+        finish(second)
+        assertEquals("other", repository.preferences.getString("active_queue", null))
+        assertEquals(third.id, player.currentMediaItem?.mediaId)
+        assertEquals(45_000L, player.currentPosition)
+        finish(third)
+        assertEquals(fourth.id, player.currentMediaItem?.mediaId)
+        finish(fourth)
+        assertFalse(player.playWhenReady)
+        assertFalse(repository.preferences.contains("active_queue"))
+        synchronizePlaybackQueue(player, repository, repository.library.value)
+        assertEquals(fourth.id, player.currentMediaItem?.mediaId)
+        assertTrue(repository.store.queues().all { it.episodeIds.isEmpty() })
+    }
+
+    @Test
+    fun deletingTheActiveQueueKeepsItsAudioUntilCompletionThenUsesAnotherQueue(): Unit =
+        runBlocking {
+            repository.store.saveQueue("news", "ニュース")
+            repository.store.saveQueue("other", "技術")
+            repository.store.addToQueue("news", first.id)
+            repository.store.addToQueue("other", second.id)
+            repository.settings.setDefaultQueue("missing")
+            repository.load()
+            commands.playQueue(player, "news", null)
+            player.seekTo(30_000)
+            repository.deleteQueue("news")
+            synchronizePlaybackQueue(player, repository, repository.library.value)
+            assertEquals(first.id, player.currentMediaItem?.mediaId)
+            assertEquals(30_000L, player.currentPosition)
+            assertTrue(player.playWhenReady)
+            repository.updateProgress(
+                first.id,
+                ListeningProgress(600_000, 600_000, true),
+                finished = true,
+            )
+            synchronizePlaybackQueue(player, repository, repository.library.value)
+            assertEquals(second.id, player.currentMediaItem?.mediaId)
+            assertEquals("other", repository.preferences.getString("active_queue", null))
+            assertTrue(player.playWhenReady)
+        }
+
+    @Test
+    fun pausedCompletionDoesNotStartTheDefaultQueue(): Unit = runBlocking {
+        repository.store.saveQueue("news", "ニュース")
+        repository.store.saveQueue("default", "あとで聴く")
+        repository.store.addToQueue("news", first.id)
+        repository.store.addToQueue("default", second.id)
+        repository.load()
+        commands.playQueue(player, "news", null)
+        player.pause()
+        repository.updateProgress(first.id, ListeningProgress(completed = true))
+        synchronizePlaybackQueue(player, repository, repository.library.value)
+        assertEquals(first.id, player.currentMediaItem?.mediaId)
+        assertFalse(player.playWhenReady)
+    }
+
+    @Test
     fun standaloneReplayResetsCompletionAppliesStartSkipAndLeavesTheQueue(): Unit = runBlocking {
         repository.store.saveFeed(
             PodcastFeed(
@@ -122,26 +208,27 @@ class PlaybackCommandsTest {
     }
 
     @Test
-    fun clearingTheActiveQueueStopsPlaybackWithoutLosingProgressOrOtherMemberships(): Unit = runBlocking {
-        repository.store.saveQueue("news", "ニュース")
-        repository.store.saveQueue("other", "技術")
-        repository.store.addToQueue("news", first.id)
-        repository.store.addToQueue("other", first.id)
-        repository.load()
-        commands.playQueue(player, "news", null)
-        player.seekTo(12_000)
-        commands.clearQueueAndDownloads(player, "news")
-        synchronizePlaybackQueue(player, repository, repository.library.value)
-        assertEquals(0, player.mediaItemCount)
-        assertFalse(player.playWhenReady)
-        assertFalse(repository.preferences.contains("active_queue"))
-        assertFalse(repository.preferences.contains("current"))
-        assertEquals(12_000L, repository.store.progress(first.id).positionMs)
-        assertFalse(repository.store.progress(first.id).completed)
-        assertTrue(repository.store.queueEpisodeIds("news").isEmpty())
-        assertEquals(listOf(first.id), repository.store.queueEpisodeIds("other"))
-        assertEquals("ニュース", repository.store.queues().first { it.id == "news" }.name)
-    }
+    fun clearingTheActiveQueueStopsPlaybackWithoutLosingProgressOrOtherMemberships(): Unit =
+        runBlocking {
+            repository.store.saveQueue("news", "ニュース")
+            repository.store.saveQueue("other", "技術")
+            repository.store.addToQueue("news", first.id)
+            repository.store.addToQueue("other", first.id)
+            repository.load()
+            commands.playQueue(player, "news", null)
+            player.seekTo(12_000)
+            commands.clearQueueAndDownloads(player, "news")
+            synchronizePlaybackQueue(player, repository, repository.library.value)
+            assertEquals(0, player.mediaItemCount)
+            assertFalse(player.playWhenReady)
+            assertFalse(repository.preferences.contains("active_queue"))
+            assertFalse(repository.preferences.contains("current"))
+            assertEquals(12_000L, repository.store.progress(first.id).positionMs)
+            assertFalse(repository.store.progress(first.id).completed)
+            assertTrue(repository.store.queueEpisodeIds("news").isEmpty())
+            assertEquals(listOf(first.id), repository.store.queueEpisodeIds("other"))
+            assertEquals("ニュース", repository.store.queues().first { it.id == "news" }.name)
+        }
 
     @Test
     fun removingCurrentAudioKeepsTheQueuePositionAndExplicitChapterPolicy(): Unit = runBlocking {

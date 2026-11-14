@@ -88,12 +88,16 @@ class EpisodeFeaturesTest {
     }
     @Test fun endSkipOnlyAdvancesOnceBeforeQueueCompletionIsPublished(): Unit = kotlinx.coroutines.runBlocking {
         var index = 0
+        var playWhenReady = true
+        var position = 0L
         val items = (0..2).map { MediaItem.Builder().setMediaId("$it").build() }
-        val fake = Proxy.newProxyInstance(Player::class.java.classLoader, arrayOf(Player::class.java)) { _, method, _ -> when (method.name) {
+        val fake = Proxy.newProxyInstance(Player::class.java.classLoader, arrayOf(Player::class.java)) { _, method, args -> when (method.name) {
             "getCurrentMediaItem" -> items[index]
             "getDuration" -> 600_000L
             "hasNextMediaItem" -> index < 2
             "seekToNextMediaItem" -> { index++; null }
+            "pause" -> { playWhenReady = false; null }
+            "seekTo" -> { position = args!!.last() as Long; null }
             else -> null
         } } as Player
         finishSkippedEpisode(fake) { id, duration ->
@@ -101,6 +105,13 @@ class EpisodeFeaturesTest {
             assertEquals("1", fake.currentMediaItem!!.mediaId)
         }
         assertEquals(1, index)
+        index = 2
+        finishSkippedEpisode(fake, continueQueue = true) { id, _ ->
+            assertEquals("2", id)
+            assertEquals(600_000L, position)
+            assertTrue(playWhenReady)
+        }
+        finishSkippedEpisode(fake) { _, _ -> assertFalse(playWhenReady) }
     }
 
     @Test fun notificationOnlySubscriptionSchedulesSyncAndDoesNotAlertInitialBackfill(): Unit = kotlinx.coroutines.runBlocking {

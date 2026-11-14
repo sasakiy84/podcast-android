@@ -80,7 +80,7 @@ class PlaybackService : MediaSessionService() {
                 delay(1000)
                 ticks++
                 if (skipController?.endReached() == true) {
-                    finishSkippedEpisode(player) { id, duration -> repository.updateProgress(id, ListeningProgress(duration, duration, true), listened = true, finished = true) }
+                    finishSkippedEpisode(player, continueQueue = repository.preferences.contains("active_queue")) { id, duration -> repository.updateProgress(id, ListeningProgress(duration, duration, true), listened = true, finished = true) }
                 }
                 if (player.playerError != null && repository.preferences.contains("active_queue")) repository.load()
                 if (ticks % 5 == 0 && player.isPlaying) persist(player)

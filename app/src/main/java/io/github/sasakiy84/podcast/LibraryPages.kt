@@ -234,15 +234,23 @@ internal fun EpisodesPage(
             }
         else state.library.episodes
     val episodes =
-        sourceEpisodes.filter { episode ->
-            when (filter) {
-                EpisodeFilter.All,
-                EpisodeFilter.History -> true
-                EpisodeFilter.Unplayed -> state.library.progress[episode.id]?.completed != true
-                EpisodeFilter.Downloaded -> state.library.downloads.containsKey(episode.id)
-                EpisodeFilter.Favorites -> episode.id in state.library.favorites
+        sourceEpisodes
+            .filter { episode ->
+                when (filter) {
+                    EpisodeFilter.All,
+                    EpisodeFilter.History -> true
+                    EpisodeFilter.Unplayed -> state.library.progress[episode.id]?.completed != true
+                    EpisodeFilter.Downloaded -> state.library.downloads.containsKey(episode.id)
+                    EpisodeFilter.Favorites -> episode.id in state.library.favorites
+                }
             }
-        }
+            .let { episodes ->
+                if (filter == EpisodeFilter.Downloaded)
+                    episodes.sortedByDescending {
+                        state.library.downloads[it.id]?.downloadOrder ?: Long.MIN_VALUE
+                    }
+                else episodes
+            }
     Column {
         if (searching)
             OutlinedTextField(

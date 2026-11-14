@@ -89,8 +89,13 @@ internal class PodcastDownloadStorage(
             connectivity
                 .getNetworkCapabilities(connectivity.activeNetwork)
                 ?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
-        val result =
-            ids.mapValues { EpisodeDownload(it.value, DownloadStatus.Failed) }.toMutableMap()
+        // Our database insertion order survives restarts and does not depend on
+        // publication dates, progress timestamps, or opaque DownloadManager IDs.
+        val result = mutableMapOf<String, EpisodeDownload>()
+        ids.entries.forEachIndexed { order, (id, managerId) ->
+            result[id] =
+                EpisodeDownload(managerId, DownloadStatus.Failed, downloadOrder = order.toLong())
+        }
         manager.query(DownloadManager.Query().setFilterById(*ids.values.toLongArray())).use { cursor
             ->
             while (cursor.moveToNext()) {
@@ -147,6 +152,7 @@ internal class PodcastDownloadStorage(
                         fileSize ?: downloaded.coerceAtLeast(0),
                         fileSize ?: total,
                         reason,
+                        result.getValue(id).downloadOrder,
                     )
             }
         }

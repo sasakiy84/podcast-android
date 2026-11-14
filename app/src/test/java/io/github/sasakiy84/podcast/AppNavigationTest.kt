@@ -89,7 +89,7 @@ class AppNavigationTest {
         val item = androidx.media3.common.MediaItem.Builder().setMediaId("one").build()
         val player = java.lang.reflect.Proxy.newProxyInstance(androidx.media3.common.Player::class.java.classLoader, arrayOf(androidx.media3.common.Player::class.java)) { _, method, _ -> when (method.name) {
             "getCurrentMediaItem" -> item
-            "isPlaying" -> false
+            "isPlaying", "getPlayWhenReady" -> false
             "getMediaItemCount" -> 0
             "setMediaItems" -> throw AssertionError("Completed queue restarted")
             else -> null

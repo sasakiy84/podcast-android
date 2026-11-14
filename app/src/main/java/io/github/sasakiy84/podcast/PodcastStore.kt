@@ -285,6 +285,11 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
         else writableDatabase.delete("favorites", "id = ?", arrayOf(id))
     }
 
+    fun isFavorite(id: String): Boolean =
+        readableDatabase.rawQuery("SELECT 1 FROM favorites WHERE id = ?", arrayOf(id)).use {
+            it.moveToFirst()
+        }
+
     fun podcast(feedUrl: String): Podcast? =
         readableDatabase.rawQuery("SELECT * FROM podcasts WHERE feed = ?", arrayOf(feedUrl)).use { c
             ->
@@ -373,7 +378,7 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
             .use { c -> if (c.moveToFirst()) c.getLong(0) else null }
 
     fun downloadIds(): Map<String, Long> =
-        readableDatabase.rawQuery("SELECT * FROM downloads", null).use { c ->
+        readableDatabase.rawQuery("SELECT * FROM downloads ORDER BY rowid", null).use { c ->
             buildMap { while (c.moveToNext()) put(c.string("id"), c.long("manager_id")) }
         }
 
@@ -682,9 +687,13 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
             EpisodeFilter.All -> Unit
         }
         val order =
-            if (filter == EpisodeFilter.History)
-                "(SELECT listened FROM listening_history WHERE id = e.id) DESC, e.rowid DESC"
-            else "e.published DESC, e.rowid DESC"
+            when (filter) {
+                EpisodeFilter.History ->
+                    "(SELECT listened FROM listening_history WHERE id = e.id) DESC, e.rowid DESC"
+                EpisodeFilter.Downloaded ->
+                    "(SELECT rowid FROM downloads WHERE id = e.id) DESC, e.rowid DESC"
+                else -> "e.published DESC, e.rowid DESC"
+            }
         val count = limit.coerceIn(1, 100_000)
         return readableDatabase
             .rawQuery(

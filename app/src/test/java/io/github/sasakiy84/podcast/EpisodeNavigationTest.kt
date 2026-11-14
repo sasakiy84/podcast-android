@@ -21,6 +21,20 @@ class EpisodeNavigationTest {
     private val episodes = (1..40).map { Episode("$it", show.feedUrl, "エピソード$it", "https://example.org/$it.mp3") }
     private val state = PodcastUiState(library = Library(listOf(show), episodes))
 
+    @Test fun downloadsUseAcquisitionOrderWhileAllEpisodesKeepPublicationOrder(): Unit {
+        val recent = episodes[0].copy(title = "新しい公開", published = 200)
+        val old = episodes[1].copy(title = "古い公開", published = 100)
+        compose.setContent { PodcastApp(PodcastUiState(library = Library(
+            podcasts = listOf(show), episodes = listOf(recent, old),
+            downloads = mapOf(recent.id to EpisodeDownload(99, DownloadStatus.Complete, downloadOrder = 0),
+                old.id to EpisodeDownload(1, DownloadStatus.Complete, downloadOrder = 1))))) }
+        compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        fun top(episode: Episode) = compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").fetchSemanticsNode().boundsInRoot.top
+        assertTrue(top(old) < top(recent))
+        compose.onNodeWithText("すべて").performClick()
+        assertTrue(top(recent) < top(old))
+    }
+
     @Test fun removingThePlayerReclaimsItsHeight(): Unit {
         val ui = mutableStateOf(state.copy(playback = PlaybackUi("1", connected = true)))
         compose.setContent { PodcastApp(ui.value) }

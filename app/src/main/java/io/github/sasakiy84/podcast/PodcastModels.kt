@@ -71,6 +71,7 @@ data class EpisodeDownload(
     val downloadedBytes: Long = 0,
     val totalBytes: Long = -1,
     val reason: String = "",
+    val downloadOrder: Long = managerId,
 )
 
 data class PlaybackQueue(
