@@ -104,9 +104,14 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
         return added
     }
 
-    fun saveFeed(feed: PodcastFeed): Unit {
+    private data class EpisodeContent(val title: String, val published: Long, val audioPath: String)
+
+    private fun episodeContent(title: String, published: Long, audioUrl: String): EpisodeContent =
+        EpisodeContent(title, published, audioUrl.substringBefore('?').substringBefore('#'))
+
+    fun saveFeed(feed: PodcastFeed): List<Episode> {
         val db = writableDatabase
-        db.transaction {
+        return db.transaction {
             val p = feed.podcast
             db.insertWithOnConflict(
                 "podcasts",
@@ -122,19 +127,39 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
                 SQLiteDatabase.CONFLICT_REPLACE,
             )
             val existing =
-                db.rawQuery("SELECT id FROM episodes WHERE feed = ?", arrayOf(p.feedUrl)).use { c ->
-                    buildSet { while (c.moveToNext()) add(c.getString(0)) }
-                }
-            val completed =
                 db.rawQuery(
-                        "SELECT p.id FROM progress p JOIN episodes e ON e.id = p.id WHERE e.feed = ? AND p.completed = 1",
-                        arrayOf(p.feedUrl),
-                    )
-                    .use { c -> buildSet { while (c.moveToNext()) add(c.getString(0)) } }
+                    "SELECT id, title, published, audio FROM episodes WHERE feed = ?",
+                    arrayOf(p.feedUrl),
+                ).use { c ->
+                    buildMap {
+                        while (c.moveToNext()) put(
+                            c.getString(0),
+                            episodeContent(c.getString(1), c.getLong(2), c.getString(3)),
+                        )
+                    }
+                }
+            val hasBaseline = existing.isNotEmpty() || db.rawQuery(
+                "SELECT 1 FROM feed_updates WHERE feed = ? AND updated > 0",
+                arrayOf(p.feedUrl),
+            ).use { it.moveToFirst() }
+            val latestPublished = existing.values.maxOfOrNull { it.published } ?: 0L
+            val existingIdsByContent = existing.entries.groupBy({ it.value }, { it.key })
+            val incoming = feed.episodes.distinctBy { it.id }
+            val incomingContentCounts = incoming.groupingBy {
+                episodeContent(it.title, it.published, it.audioUrl)
+            }.eachCount()
             val feedRules = rules().filter { it.feedUrl == p.feedUrl && it.enabled }
             val automaticDownload = p.feedUrl in autoDownloadFeeds()
-            for (episode in feed.episodes) {
-                val isNew = episode.id !in existing
+            val newEpisodes = mutableListOf<Episode>()
+            for (item in incoming) {
+                val content = episodeContent(item.title, item.published, item.audioUrl)
+                // Without a feed ID, a rotating audio URL can give an existing episode a new ID.
+                val previousIds = if (
+                    item.id !in existing && item.id == stableId("${p.feedUrl}|${item.audioUrl}")
+                ) existingIdsByContent[content].orEmpty() else emptyList()
+                val previousId =
+                    previousIds.singleOrNull()?.takeIf { incomingContentCounts[content] == 1 }
+                val episode = if (previousId == null) item else item.copy(id = previousId)
                 db.insertWithOnConflict(
                     "episodes",
                     null,
@@ -153,13 +178,20 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
                     },
                     SQLiteDatabase.CONFLICT_REPLACE,
                 )
-                if (isNew && episode.id !in completed) {
+                if (
+                    hasBaseline &&
+                        item.id !in existing &&
+                        previousIds.isEmpty() &&
+                        (item.published <= 0 || item.published >= latestPublished)
+                ) {
+                    newEpisodes += episode
                     val matching = feedRules.filter { it.matches(episode) }
                     matching.forEach { addToQueue(it.queueId, episode.id) }
                     if (automaticDownload || matching.any { it.autoDownload })
                         requestAutomaticDownload(episode.id)
                 }
             }
+            newEpisodes
         }
     }
 
@@ -249,12 +281,6 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
 
     private val episodePreview =
         "id, feed, title, audio, substr(description, 1, 512) AS description, published, duration, artwork, chapters, chapters_url, website"
-
-    fun episodeIds(feed: String): Set<String> =
-        readableDatabase.rawQuery("SELECT id FROM episodes WHERE feed = ?", arrayOf(feed)).use { c
-            ->
-            buildSet { while (c.moveToNext()) add(c.getString(0)) }
-        }
 
     fun podcastEpisodes(feedUrl: String, limit: Int = 150): PodcastEpisodePage {
         val total =

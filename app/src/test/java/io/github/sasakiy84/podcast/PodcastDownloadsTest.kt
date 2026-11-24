@@ -34,6 +34,7 @@ class PodcastDownloadsTest {
         )
     private val manager
         get() = context.getSystemService(DownloadManager::class.java)
+    private var fetchedFeed = PodcastFeed(podcast, listOf(episode))
 
     private val file
         get() =
@@ -42,7 +43,7 @@ class PodcastDownloadsTest {
     @Before
     fun open(): Unit {
         context.deleteDatabase("podcasts.db")
-        repository = PodcastRepository(context)
+        repository = PodcastRepository(context, fetchFeed = { fetchedFeed })
         repository.store.saveFeed(PodcastFeed(podcast, listOf(episode)))
     }
 
@@ -60,6 +61,110 @@ class PodcastDownloadsTest {
         assertEquals(episode.title, item.mediaMetadata.title)
         assertEquals(Uri.parse(episode.audioUrl), item.localConfiguration?.uri)
     }
+
+    @Test
+    fun refreshAutomatesNewReleasesButStillListsPreviouslyUnseenArchiveEpisodes(): Unit =
+        runBlocking {
+            val known = episode.copy(published = 2_000L)
+            val archive = episode.copy(id = "archive", published = 1_000L)
+            val new = episode.copy(id = "new", published = 3_000L)
+            val sameTime = episode.copy(id = "same-time", published = known.published)
+            repository.store.saveFeed(PodcastFeed(podcast, listOf(known)))
+            repository.setAutoDownload(podcast.feedUrl, true)
+            repository.saveQueue("news", "ニュース")
+            repository.saveRule(QueueRule("news", podcast.feedUrl), false)
+            fetchedFeed = PodcastFeed(podcast, listOf(new, sameTime, known, archive))
+
+            repository.refresh()
+
+            assertEquals(setOf(new.id, sameTime.id), repository.store.downloadIds().keys)
+            assertEquals(listOf(new.id, sameTime.id), repository.store.queueEpisodeIds("news"))
+            assertEquals(archive, repository.store.episode(archive.id))
+        }
+
+    @Test
+    fun firstRefreshOfAnImportedFeedEstablishesTheBaselineWithoutAutomatingItsArchive(): Unit =
+        runBlocking {
+            val imported = podcast.copy(feedUrl = "https://example.org/imported")
+            val archive = episode.copy(id = "archive", feedUrl = imported.feedUrl, published = 1_000L)
+            val new = archive.copy(id = "new", published = 2_000L)
+            repository.store.importSubscriptions(listOf(imported))
+            repository.setAutoDownload(imported.feedUrl, true)
+            repository.saveQueue("news", "ニュース")
+            repository.saveRule(QueueRule("news", imported.feedUrl, autoDownload = true), false)
+            fetchedFeed = PodcastFeed(imported, listOf(archive))
+
+            repository.refresh(imported.feedUrl)
+
+            assertEquals(archive, repository.store.episode(archive.id))
+            assertTrue(repository.store.downloadIds().isEmpty())
+            assertTrue(repository.store.queueEpisodeIds("news").isEmpty())
+
+            fetchedFeed = PodcastFeed(imported, listOf(new, archive))
+            repository.refresh(imported.feedUrl)
+
+            assertEquals(setOf(new.id), repository.store.downloadIds().keys)
+            assertEquals(listOf(new.id), repository.store.queueEpisodeIds("news"))
+        }
+
+    @Test
+    fun rotatingAudioUrlWithoutGuidUpdatesTheSavedEpisodeAndKeepsItsProgress(): Unit =
+        runBlocking {
+            fun feed(token: Int): PodcastFeed = FeedParser.parse(
+                """
+                <rss version="2.0"><channel><title>Offline show</title>
+                <item><title>Archive</title><pubDate>Wed, 01 Jan 2020 00:00:00 GMT</pubDate>
+                <enclosure url="https://example.org/archive.mp3?token=$token" type="audio/mpeg"/>
+                </item></channel></rss>
+                """.trimIndent(),
+                podcast.feedUrl,
+            )
+            val original = feed(1).episodes.single()
+            repository.store.saveFeed(PodcastFeed(podcast, listOf(original)))
+            repository.updateProgress(original.id, ListeningProgress(1_000, 2_000))
+            repository.setAutoDownload(podcast.feedUrl, true)
+            repository.saveQueue("news", "ニュース")
+            repository.saveRule(QueueRule("news", podcast.feedUrl, autoDownload = true), false)
+
+            for (token in 2..3) {
+                fetchedFeed = feed(token)
+                repository.refresh()
+            }
+
+            assertEquals(2, repository.store.podcastEpisodes(podcast.feedUrl).total)
+            assertEquals(fetchedFeed.episodes.single().audioUrl, repository.store.episode(original.id)?.audioUrl)
+            assertEquals(1_000L, repository.store.progress(original.id).positionMs)
+            assertTrue(repository.store.downloadIds().isEmpty())
+            assertTrue(repository.store.queueEpisodeIds("news").isEmpty())
+        }
+
+    @Test
+    fun failedAutomaticDownloadSurvivesRefreshAndWifiChangesUntilManuallyRetried(): Unit =
+        runBlocking {
+            val new = episode.copy(id = "failed-download")
+            repository.setAutoDownload(podcast.feedUrl, true)
+            fetchedFeed = PodcastFeed(podcast, listOf(episode, new))
+            repository.refresh()
+            val firstId = requireNotNull(repository.store.downloadId(new.id))
+            assertTrue(repository.store.automaticDownloadIds().isEmpty())
+            val request: ShadowDownloadManager.ShadowRequest = Shadow.extract(shadowOf(manager).getRequest(firstId))
+            request.setStatus(DownloadManager.STATUS_FAILED)
+
+            // Earlier versions kept the automatic reservation after submitting the request.
+            repository.store.writableDatabase.execSQL(
+                "INSERT INTO automatic_downloads (episode_id) VALUES (?)",
+                arrayOf(new.id),
+            )
+            repeat(2) { repository.refresh() }
+            repository.setWifiOnly(!repository.settings.wifiOnly)
+
+            assertTrue(repository.store.automaticDownloadIds().isEmpty())
+            assertEquals(firstId, repository.store.downloadId(new.id))
+            assertEquals(DownloadStatus.Failed, repository.library.value.downloads[new.id]?.status)
+
+            repository.retryDownload(new)
+            assertNotEquals(firstId, repository.store.downloadId(new.id))
+        }
 
     @Test
     fun automaticDownloadsUseOneSharedRequestAndManualRemovalPreventsRedownloading(): Unit =
@@ -106,6 +211,7 @@ class PodcastDownloadsTest {
             repository.store.addToQueue("other", other.id)
             repository.store.setFavorite(episode.id, true)
             repository.store.saveFeed(PodcastFeed(podcast, listOf(pending)))
+            assertTrue(pending.id in repository.store.automaticDownloadIds())
             for ((item, local) in listOf(episode to file, other to otherFile)) {
                 repository.download(item)
                 val id = requireNotNull(repository.store.downloadId(item.id))
@@ -119,7 +225,7 @@ class PodcastDownloadsTest {
             val otherId = requireNotNull(repository.store.downloadId(other.id))
             repository.updateProgress(episode.id, ListeningProgress(12_000, 60_000), listened = true)
             assertTrue(file.isFile)
-            assertTrue(pending.id in repository.store.automaticDownloadIds())
+            assertTrue(repository.store.automaticDownloadIds().isEmpty())
             repository.preferences.edit().putString("active_queue", "other").commit()
             player.setMediaItems(listOf(episode.mediaItem(repository, applyStartSkip = false), other.mediaItem(repository)), 0, 12_000)
             assertEquals(Uri.fromFile(file), player.currentMediaItem!!.localConfiguration!!.uri)
@@ -323,6 +429,9 @@ class PodcastDownloadsTest {
         runBlocking {
             repository.download(episode)
             val old = requireNotNull(repository.store.downloadId(episode.id))
+            val pending: ShadowDownloadManager.ShadowRequest =
+                Shadow.extract(shadowOf(manager).getRequest(old))
+            pending.setStatus(DownloadManager.STATUS_PENDING)
             repository.setWifiOnly(true)
             val restricted = requireNotNull(repository.store.downloadId(episode.id))
             assertNotEquals(old, restricted)

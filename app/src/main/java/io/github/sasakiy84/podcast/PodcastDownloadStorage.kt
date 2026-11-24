@@ -16,9 +16,6 @@ internal class PodcastDownloadStorage(
     private val manager = context.getSystemService(DownloadManager::class.java)
 
     fun enqueue(episode: Episode): Unit {
-        loudnessProfiles.remove(episode.id)
-        store.downloadIds()[episode.id]?.let { manager.remove(it) }
-        downloadFile(episode.id)?.delete()
         val request =
             DownloadManager.Request(podcastUrl(episode.audioUrl).toASCIIString().toUri())
                 .setTitle(episode.title)
@@ -50,6 +47,9 @@ internal class PodcastDownloadStorage(
                             DownloadManager.Request.NETWORK_MOBILE
                 )
                 .setAllowedOverRoaming(false)
+        loudnessProfiles.remove(episode.id)
+        store.downloadId(episode.id)?.let { manager.remove(it) }
+        downloadFile(episode.id)?.delete()
         store.saveDownload(episode.id, manager.enqueue(request))
     }
 

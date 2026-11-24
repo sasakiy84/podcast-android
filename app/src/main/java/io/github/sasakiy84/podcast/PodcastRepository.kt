@@ -2,7 +2,6 @@ package io.github.sasakiy84.podcast
 
 import android.content.Context
 import android.net.Uri
-import androidx.core.content.edit
 import androidx.core.database.sqlite.transaction
 import coil.imageLoader
 import kotlinx.coroutines.Dispatchers
@@ -211,39 +210,26 @@ class PodcastRepository(
                                                 val feed = result.feed
                                                 mutex.withLock {
                                                     if (store.podcast(podcast.feedUrl) != null) {
-                                                        val existing =
-                                                            store.episodeIds(podcast.feedUrl)
-                                                        store.writableDatabase.transaction {
-                                                            if (feed != null) store.saveFeed(feed)
-                                                            store.recordFeedUpdate(
-                                                                podcast.feedUrl,
-                                                                result.validators,
-                                                                System.currentTimeMillis(),
-                                                            )
-                                                        }
+                                                        val newEpisodes =
+                                                            store.writableDatabase.transaction {
+                                                                val saved = feed?.let(store::saveFeed).orEmpty()
+                                                                store.recordFeedUpdate(
+                                                                    podcast.feedUrl,
+                                                                    result.validators,
+                                                                    System.currentTimeMillis(),
+                                                                )
+                                                                saved
+                                                            }
                                                         if (
                                                             feed != null &&
                                                                 settings
                                                                     .options(podcast.feedUrl)
-                                                                    .notifications &&
-                                                                (existing.isNotEmpty() ||
-                                                                    preferences.getBoolean(
-                                                                        "seen_feed:${stableId(podcast.feedUrl)}",
-                                                                        false,
-                                                                    ))
+                                                                    .notifications
                                                         )
                                                             notifications.newEpisodes(
                                                                 feed.podcast,
-                                                                feed.episodes.filter {
-                                                                    it.id !in existing
-                                                                },
+                                                                newEpisodes,
                                                             )
-                                                        preferences.edit {
-                                                            putBoolean(
-                                                                "seen_feed:${stableId(podcast.feedUrl)}",
-                                                                true,
-                                                            )
-                                                        }
                                                         val now =
                                                             android.os.SystemClock.elapsedRealtime()
                                                         if (now - lastPublish >= 750) {
@@ -417,18 +403,18 @@ class PodcastRepository(
     suspend fun setWifiOnly(enabled: Boolean): Unit =
         withContext(Dispatchers.IO) {
             mutex.withLock {
+                if (settings.wifiOnly == enabled) return@withLock
                 settings.setWifiOnly(enabled)
                 // Recreate outstanding requests so a newly enabled restriction takes effect
                 // immediately.
                 val pending =
                     downloads()
-                        .filterValues { it.status != DownloadStatus.Complete }
+                        .filterValues {
+                            it.status == DownloadStatus.Waiting || it.status == DownloadStatus.Running
+                        }
                         .keys
                         .mapNotNull(store::episode)
-                pending.forEach {
-                    downloadStorage.remove(it.id)
-                    downloadStorage.enqueue(it)
-                }
+                pending.forEach(downloadStorage::enqueue)
                 publish()
             }
         }
@@ -491,15 +477,9 @@ class PodcastRepository(
             configureBackgroundSync()
         }
 
-    suspend fun download(episode: Episode, automatic: Boolean = false): Unit =
+    suspend fun download(episode: Episode): Unit =
         withContext(Dispatchers.IO) {
             mutex.withLock {
-                if (
-                    automatic &&
-                        (episode.id !in store.automaticDownloadIds() ||
-                            store.progress(episode.id).completed)
-                )
-                    return@withLock
                 val existing = downloads()[episode.id]
                 if (existing != null && existing.status != DownloadStatus.Failed) return@withLock
                 downloadStorage.enqueue(episode)
@@ -639,30 +619,40 @@ class PodcastRepository(
 
     suspend fun processAutomaticDownloads(): Unit =
         withContext(Dispatchers.IO) {
-            for (id in store.automaticDownloadIds()) {
-                val episode = store.episode(id)
+            mutex.withLock {
+                val pending = store.automaticDownloadIds()
+                if (pending.isEmpty()) return@withLock
                 val library = store.library()
-                val eligible =
-                    episode != null &&
-                        !store.progress(id).completed &&
-                        (episode.feedUrl in library.autoDownloadFeeds ||
-                            library.queueRules.any { rule ->
-                                rule.autoDownload &&
-                                    rule.matches(episode) &&
-                                    library.queues.any {
-                                        it.id == rule.queueId && id in it.episodeIds
-                                    }
-                            })
-                if (!eligible || downloads()[id]?.status == DownloadStatus.Complete) {
-                    mutex.withLock { store.cancelAutomaticDownload(id) }
-                    continue
-                }
+                val queueEpisodes = library.queues.associate { it.id to it.episodeIds.toHashSet() }
+                val submitted = store.downloadIds()
+                var enqueued = false
                 try {
-                    download(requireNotNull(episode), automatic = true)
-                } catch (_: IllegalArgumentException) {
-                    /* Keep the durable request for a later retry. */
-                } catch (_: SecurityException) {
-                    /* Storage can become available again later. */
+                    for (id in pending) {
+                        coroutineContext.ensureActive()
+                        val episode = if (id in submitted) null else store.episode(id)
+                        if (
+                            episode != null && !store.progress(id).completed &&
+                                (episode.feedUrl in library.autoDownloadFeeds ||
+                                    library.queueRules.any { rule ->
+                                        rule.autoDownload &&
+                                            queueEpisodes[rule.queueId]?.contains(id) == true &&
+                                            rule.matches(episode)
+                                    })
+                        ) {
+                            try {
+                                downloadStorage.enqueue(episode)
+                                enqueued = true
+                            } catch (_: IllegalArgumentException) {
+                                continue
+                            } catch (_: SecurityException) {
+                                continue
+                            }
+                        }
+                        // The platform owns the request after handoff, including any network retries.
+                        store.cancelAutomaticDownload(id)
+                    }
+                } finally {
+                    if (enqueued) publish()
                 }
             }
             configureBackgroundSync()
