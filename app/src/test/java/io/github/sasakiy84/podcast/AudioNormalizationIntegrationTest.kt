@@ -1,7 +1,10 @@
 package io.github.sasakiy84.podcast
 
 import android.app.DownloadManager
+import android.app.job.JobInfo
+import android.app.job.JobParameters
 import android.app.job.JobScheduler
+import android.content.ComponentName
 import android.content.Intent
 import android.media.MediaFormat
 import android.net.Uri
@@ -9,9 +12,11 @@ import android.os.Environment
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences
 import androidx.media3.common.audio.AudioProcessingPipeline
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.exoplayer.source.SinglePeriodTimeline
+import androidx.media3.session.MediaSession
 import com.google.common.collect.ImmutableList
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -25,6 +30,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
@@ -33,6 +39,7 @@ import org.robolectric.shadow.api.Shadow
 import org.robolectric.shadows.ShadowDownloadManager
 import org.robolectric.shadows.ShadowMediaExtractor
 import org.robolectric.shadows.util.DataSource
+import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -44,6 +51,27 @@ class AudioNormalizationIntegrationTest {
     fun resetPreferences(): Unit {
         context.getSharedPreferences("playback", 0).edit().clear().commit()
         context.getSharedPreferences("audio_loudness", 0).edit().clear().commit()
+    }
+
+    @Test
+    fun turningOffNormalizationAllowsOffloadAndKeepsSpeedSupportRequired(): Unit {
+        val controller = Robolectric.buildService(PlaybackService::class.java).create()
+        val settings = PlaybackPreferences(context.getSharedPreferences("playback", 0))
+        try {
+            val session = ReflectionHelpers.getField<MediaSession>(controller.get(), "session")
+            val player = session.player
+            assertEquals(AudioOffloadPreferences.DEFAULT, player.trackSelectionParameters.audioOffloadPreferences)
+
+            settings.setNormalizeVolume(false)
+            val offload = player.trackSelectionParameters.audioOffloadPreferences
+            assertEquals(AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED, offload.audioOffloadMode)
+            assertTrue(offload.isSpeedChangeSupportRequired)
+
+            settings.setNormalizeVolume(true)
+            assertEquals(AudioOffloadPreferences.DEFAULT, player.trackSelectionParameters.audioOffloadPreferences)
+        } finally {
+            controller.destroy()
+        }
     }
 
     @Test
@@ -213,6 +241,7 @@ class AudioNormalizationIntegrationTest {
                         .getPendingJob(AudioAnalysisJob.JOB_ID)
                 )
             assertTrue(job.isRequireBatteryNotLow)
+            assertTrue(job.isRequireCharging)
             assertNull(job.requiredNetwork)
             settings.setNormalizeVolume(false)
             AudioAnalysisJob.schedule(context)
@@ -223,6 +252,23 @@ class AudioNormalizationIntegrationTest {
             )
         } finally {
             file.delete()
+        }
+    }
+
+    @Test
+    fun aPendingAnalysisJobFromAnOlderVersionIsRescheduledForCharging(): Unit {
+        val scheduler = context.getSystemService(JobScheduler::class.java)
+        val oldJob = JobInfo.Builder(AudioAnalysisJob.JOB_ID, ComponentName(context, AudioAnalysisJob::class.java))
+            .setRequiresBatteryNotLow(true)
+            .setPersisted(true)
+            .build()
+        assertEquals(JobScheduler.RESULT_SUCCESS, scheduler.schedule(oldJob))
+        val controller = Robolectric.buildService(AudioAnalysisJob::class.java).create()
+        try {
+            assertFalse(controller.get().onStartJob(Shadow.newInstanceOf(JobParameters::class.java)))
+            assertTrue(requireNotNull(scheduler.getPendingJob(AudioAnalysisJob.JOB_ID)).isRequireCharging)
+        } finally {
+            controller.destroy()
         }
     }
 

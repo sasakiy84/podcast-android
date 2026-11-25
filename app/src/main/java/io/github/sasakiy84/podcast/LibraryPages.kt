@@ -411,7 +411,8 @@ internal fun EpisodeCard(
             .getSystemService(android.content.ClipboardManager::class.java)
             .setPrimaryClip(android.content.ClipData.newPlainText("エピソード", episode.title))
     }
-    val playing = state.playback.episodeId == episode.id && state.playback.playing
+    val playback = state.playback.takeIf { it.episodeId == episode.id && it.playing }
+    val playing = playback != null
     EpisodeSwipeActions(episode, state, action, swipes, remove = removeFromQueue) {
         Column(Modifier.fillMaxWidth()) {
             Row(
@@ -473,8 +474,10 @@ internal fun EpisodeCard(
                                 Modifier.size(14.dp),
                                 tint = MaterialTheme.colorScheme.primary,
                             )
-                        val duration = progress?.durationMs?.takeIf { it > 0 } ?: episode.durationMs
-                        val position = progress?.positionMs ?: 0
+                        val duration = playback?.durationMs?.takeIf { it > 0 }
+                            ?: progress?.durationMs?.takeIf { it > 0 }
+                            ?: episode.durationMs
+                        val position = playback?.positionMs ?: progress?.positionMs ?: 0
                         val time =
                             when {
                                 progress?.completed == true -> "再生済み"

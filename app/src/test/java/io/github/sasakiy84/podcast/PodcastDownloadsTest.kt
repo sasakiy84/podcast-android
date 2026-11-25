@@ -278,6 +278,23 @@ class PodcastDownloadsTest {
     }
 
     @Test
+    fun downloadCompletionMakesLocalAudioAvailableWithoutReloadingEpisodes(): Unit = runBlocking {
+        repository.download(episode)
+        val id = requireNotNull(repository.store.downloadId(episode.id))
+        val request: ShadowDownloadManager.ShadowRequest = Shadow.extract(shadowOf(manager).getRequest(id))
+        request.setStatus(DownloadManager.STATUS_SUCCESSFUL)
+        file.parentFile?.mkdirs()
+        file.writeBytes(byteArrayOf(1, 2, 3))
+        val episodes = repository.library.value.episodes
+
+        repository.refreshDownloadCompletion(id)
+
+        assertSame(episodes, repository.library.value.episodes)
+        assertEquals(DownloadStatus.Complete, repository.library.value.downloads[episode.id]?.status)
+        assertEquals(Uri.fromFile(file), repository.audioUri(episode))
+    }
+
+    @Test
     fun finishedDownloadUsesTheLocalAudioAndSurvivesReloading(): Unit = runBlocking {
         repository.download(episode)
         val id = requireNotNull(repository.store.downloadIds()[episode.id])

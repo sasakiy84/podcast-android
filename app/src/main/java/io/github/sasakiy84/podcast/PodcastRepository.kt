@@ -149,7 +149,7 @@ class PodcastRepository(
 
     suspend fun exportOpml(uri: Uri): Unit =
         withContext(Dispatchers.IO) {
-            val podcasts = mutex.withLock { store.library().podcasts }
+            val podcasts = mutex.withLock { store.podcasts() }
             try {
                 val output =
                     context.contentResolver.openOutputStream(uri, "wt")
@@ -187,7 +187,7 @@ class PodcastRepository(
         withContext(Dispatchers.IO) {
             val podcasts =
                 mutex.withLock {
-                    store.library().podcasts.filter { feedUrl == null || it.feedUrl == feedUrl }
+                    store.podcasts().filter { feedUrl == null || it.feedUrl == feedUrl }
                 }
             val completed = java.util.concurrent.atomic.AtomicInteger()
             val permits = refreshPermits
@@ -505,6 +505,11 @@ class PodcastRepository(
             }
         }
 
+    internal suspend fun savePlaybackPosition(id: String, positionMs: Long, durationMs: Long): Unit =
+        withContext(Dispatchers.IO) {
+            mutex.withLock { store.saveProgress(id, ListeningProgress(positionMs, durationMs)) }
+        }
+
     suspend fun updateProgress(
         id: String,
         progress: ListeningProgress,
@@ -612,7 +617,7 @@ class PodcastRepository(
         withContext(Dispatchers.IO) {
             PodcastSyncJob.schedule(
                 context,
-                store.library().podcasts.isNotEmpty(),
+                store.podcasts().isNotEmpty(),
                 settings.refreshHours,
             )
         }
@@ -659,6 +664,16 @@ class PodcastRepository(
         }
 
     fun audioUri(episode: Episode): Uri = downloadStorage.audioUri(episode, mutableLibrary.value)
+
+    internal suspend fun refreshDownloadCompletion(managerId: Long): Unit =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                val library = mutableLibrary.value
+                if (library.downloads.values.any { it.managerId == managerId }) {
+                    mutableLibrary.value = library.copy(downloads = downloads())
+                }
+            }
+        }
 
     private fun publish(): Unit {
         mutableLibrary.value =

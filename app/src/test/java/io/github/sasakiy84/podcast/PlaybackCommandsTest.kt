@@ -48,6 +48,17 @@ class PlaybackCommandsTest {
     }
 
     @Test
+    fun periodicPositionIsSavedWithoutReloadingTheLibraryOrWritingHistory(): Unit = runBlocking {
+        val library = repository.library.value
+
+        repository.savePlaybackPosition(first.id, 30_000, first.durationMs)
+
+        assertEquals(ListeningProgress(30_000, first.durationMs), repository.store.progress(first.id))
+        assertSame(library, repository.library.value)
+        assertTrue(repository.store.library().historyIds.isEmpty())
+    }
+
+    @Test
     fun queueCompletionUsesDefaultThenOtherQueuesAndStopsWithoutReplaying(): Unit = runBlocking {
         val third = first.copy(id = "three", title = "第三回")
         val fourth = first.copy(id = "four", title = "第四回")

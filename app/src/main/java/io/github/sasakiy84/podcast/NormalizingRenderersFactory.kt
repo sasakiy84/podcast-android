@@ -9,7 +9,7 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
 
 /**
- * Software PCM keeps correction active with Bluetooth, wired outputs, and playback speed changes.
+ * PCM keeps correction active across outputs. The player allows offload only with correction off.
  */
 @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
 internal class NormalizingRenderersFactory(

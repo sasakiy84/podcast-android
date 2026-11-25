@@ -38,6 +38,17 @@ class LibraryFeatureUiTest {
             durationMs = 600_000,
         )
 
+    @Test
+    fun episodeCardShowsLiveRemainingTimeBeforeThePositionIsSaved(): Unit {
+        val item = episode(1)
+        val state = PodcastUiState(
+            playback = PlaybackUi(episodeId = item.id, playing = true, positionMs = 120_000, durationMs = 600_000),
+        )
+        compose.setContent { PodcastTheme { EpisodeCard(item, show, state, {}, {}) } }
+
+        compose.onNodeWithText("残り${formatDuration(480_000)}").assertIsDisplayed()
+    }
+
     private fun withModel(
         episodes: List<Episode>,
         block: (PodcastsViewModel, PodcastRepository) -> Unit,

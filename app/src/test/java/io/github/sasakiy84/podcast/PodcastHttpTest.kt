@@ -1,13 +1,21 @@
 package io.github.sasakiy84.podcast
 
+import android.app.job.JobParameters
 import java.io.ByteArrayOutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPOutputStream
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
+import org.robolectric.Robolectric
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.shadow.api.Shadow
+import org.robolectric.shadows.ShadowJobService
 
 @org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(sdk = [36])
@@ -185,6 +193,39 @@ class PodcastHttpTest {
             assertTrue(requests[1].any { it.startsWith("If-None-Match:", true) })
             listOf(0, 2, 3, 4).forEach { index ->
                 assertFalse(requests[index].any { it.startsWith("If-None-Match:", true) })
+            }
+        }
+    }
+
+    @Test
+    fun aFailedFeedWaitsForTheNextPeriodicRefresh(): Unit {
+        val rss = "<rss><channel><title>Available</title></channel></rss>".toByteArray()
+        fixture(listOf(Response("200 OK", emptyMap(), rss))) { available ->
+            fixture(listOf(Response("404 Not Found", emptyMap()))) { failing ->
+                runBlocking {
+                    val app = RuntimeEnvironment.getApplication() as PodcastApplication
+                    val repository = app.repository
+                    val controller = Robolectric.buildService(PodcastSyncJob::class.java).create()
+                    try {
+                        repository.store.importSubscriptions(
+                            listOf(Podcast(available, "Available"), Podcast(failing, "Unavailable")),
+                        )
+                        val service = controller.get()
+                        val job: ShadowJobService = Shadow.extract(service)
+                        assertTrue(service.onStartJob(Shadow.newInstanceOf(JobParameters::class.java)))
+                        withTimeout(5_000) {
+                            while (!job.isJobFinished) delay(10)
+                        }
+                        assertFalse(job.isRescheduleNeeded)
+                        val updates = repository.library.value.feedUpdates
+                        assertTrue(updates.getValue(available).updatedMs > 0)
+                        assertTrue(updates.getValue(failing).error.contains("404"))
+                    } finally {
+                        controller.destroy()
+                        repository.store.close()
+                        app.deleteDatabase("podcasts.db")
+                    }
+                }
             }
         }
     }

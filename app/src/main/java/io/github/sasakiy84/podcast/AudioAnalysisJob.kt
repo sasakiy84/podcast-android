@@ -24,6 +24,11 @@ class AudioAnalysisJob : JobService() {
     private var work: Job? = null
 
     override fun onStartJob(params: JobParameters): Boolean {
+        val scheduler = getSystemService(JobScheduler::class.java)
+        if (scheduler.getPendingJob(JOB_ID)?.isRequireCharging == false) {
+            schedule(this)
+            return false
+        }
         work =
             scope.launch {
                 var retry = false
@@ -66,10 +71,11 @@ class AudioAnalysisJob : JobService() {
                 scheduler.cancel(JOB_ID)
                 return
             }
-            if (scheduler.getPendingJob(JOB_ID) != null) return
+            if (scheduler.getPendingJob(JOB_ID)?.isRequireCharging == true) return
             scheduler.schedule(
                 JobInfo.Builder(JOB_ID, ComponentName(context, AudioAnalysisJob::class.java))
                     .setRequiresBatteryNotLow(true)
+                    .setRequiresCharging(true)
                     .setPersisted(true)
                     .setBackoffCriteria(
                         TimeUnit.MINUTES.toMillis(1),
@@ -81,10 +87,23 @@ class AudioAnalysisJob : JobService() {
     }
 }
 
-/** The broadcast only schedules a scan of our own files; no intent-supplied path is trusted. */
+/** Refresh the status of known requests and schedule local analysis. */
 class DownloadCompletionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-            AudioAnalysisJob.schedule(context)
+        if (intent.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
+        AudioAnalysisJob.schedule(context)
+        val managerId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
+        val application = context.applicationContext as? PodcastApplication ?: return
+        if (managerId < 0) return
+        val result = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                application.repository.refreshDownloadCompletion(managerId)
+            } catch (_: android.database.SQLException) {
+                // The next library load can read the transfer status again.
+            } finally {
+                result?.finish()
+            }
+        }
     }
 }

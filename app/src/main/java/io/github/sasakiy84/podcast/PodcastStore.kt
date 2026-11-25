@@ -195,24 +195,26 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
         }
     }
 
-    fun library(limit: Int = 1000, currentId: String? = null, historyLimit: Int = 150): Library {
-        val shows =
-            readableDatabase
-                .rawQuery("SELECT * FROM podcasts ORDER BY title COLLATE NOCASE", null)
-                .use { c ->
-                    buildList {
-                        while (c.moveToNext()) add(
-                            Podcast(
-                                c.string("feed"),
-                                c.string("title"),
-                                c.string("author"),
-                                c.string("artwork"),
-                                c.string("description"),
-                                c.string("website"),
-                            )
+    fun podcasts(): List<Podcast> =
+        readableDatabase
+            .rawQuery("SELECT * FROM podcasts ORDER BY title COLLATE NOCASE", null)
+            .use { c ->
+                buildList {
+                    while (c.moveToNext()) add(
+                        Podcast(
+                            c.string("feed"),
+                            c.string("title"),
+                            c.string("author"),
+                            c.string("artwork"),
+                            c.string("description"),
+                            c.string("website"),
                         )
-                    }
+                    )
                 }
+            }
+
+    fun library(limit: Int = 1000, currentId: String? = null, historyLimit: Int = 150): Library {
+        val shows = podcasts()
         val episodes =
             readableDatabase
                 .rawQuery(

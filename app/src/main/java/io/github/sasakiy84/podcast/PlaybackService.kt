@@ -2,11 +2,14 @@ package io.github.sasakiy84.podcast
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.SharedPreferences
 import androidx.core.content.edit
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -26,15 +29,16 @@ class PlaybackService : MediaSessionService() {
     private var ticker: kotlinx.coroutines.Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val repository: PodcastRepository get() = (application as PodcastApplication).repository
+    private val normalizationListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "normalize_volume") session?.player?.let(::updateAudioOffload)
+    }
 
     override fun onCreate(): Unit {
         super.onCreate()
         setMediaNotificationProvider(androidx.media3.session.DefaultMediaNotificationProvider(this).apply { setSmallIcon(R.drawable.ic_podcast) })
         val renderers = NormalizingRenderersFactory(this, repository.loudnessProfiles)
         val player = ExoPlayer.Builder(this, renderers).setSeekBackIncrementMs(15_000).setSeekForwardIncrementMs(30_000).build().apply {
-            trackSelectionParameters = trackSelectionParameters.buildUpon().setAudioOffloadPreferences(
-                androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.Builder()
-                    .setAudioOffloadMode(androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_DISABLED).build()).build()
+            updateAudioOffload(this)
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build(), true)
             setHandleAudioBecomingNoisy(true)
             setWakeMode(C.WAKE_MODE_LOCAL)
@@ -43,9 +47,16 @@ class PlaybackService : MediaSessionService() {
         speedController = PlaybackSpeedController(player, repository.settings)
         val activity = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         session = MediaSession.Builder(this, player).setSessionActivity(activity).build()
+        repository.settings.listen(normalizationListener)
         player.addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean): Unit { persist(player) }
+            override fun onIsPlayingChanged(isPlaying: Boolean): Unit {
+                persist(player)
+                if (isPlaying && ticker?.isActive != true) startPlaybackTicker(player)
+            }
             override fun onPlaybackStateChanged(playbackState: Int): Unit { persist(player) }
+            override fun onPlayerError(error: PlaybackException): Unit {
+                if (repository.preferences.contains("active_queue")) scope.launch { repository.load() }
+            }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int): Unit {
                 repository.preferences.edit { putString("current", mediaItem?.mediaId) }
             }
@@ -74,16 +85,38 @@ class PlaybackService : MediaSessionService() {
             repository.load()
             repository.library.collect { library -> synchronizePlaybackQueue(player, repository, library) }
         }
+    }
+
+    private fun updateAudioOffload(player: Player): Unit {
+        val preferences =
+            if (repository.settings.normalizeVolume) AudioOffloadPreferences.DEFAULT
+            else AudioOffloadPreferences.Builder()
+                .setAudioOffloadMode(AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED)
+                .setIsSpeedChangeSupportRequired(true)
+                .setIsGaplessSupportRequired(true)
+                .build()
+        player.trackSelectionParameters =
+            player.trackSelectionParameters.buildUpon().setAudioOffloadPreferences(preferences).build()
+    }
+
+    private fun startPlaybackTicker(player: Player): Unit {
         ticker = scope.launch {
             var ticks = 0
-            while (true) {
+            while (player.isPlaying) {
                 delay(1000)
-                ticks++
+                if (!player.isPlaying) break
                 if (skipController?.endReached() == true) {
-                    finishSkippedEpisode(player, continueQueue = repository.preferences.contains("active_queue")) { id, duration -> repository.updateProgress(id, ListeningProgress(duration, duration, true), listened = true, finished = true) }
+                    finishSkippedEpisode(
+                        player,
+                        continueQueue = repository.preferences.contains("active_queue"),
+                    ) { id, duration ->
+                        repository.updateProgress(id, ListeningProgress(duration, duration, true), listened = true, finished = true)
+                    }
                 }
-                if (player.playerError != null && repository.preferences.contains("active_queue")) repository.load()
-                if (ticks % 5 == 0 && player.isPlaying) persist(player)
+                if (++ticks % 30 == 0 && player.isPlaying) {
+                    val id = player.currentMediaItem?.mediaId ?: continue
+                    repository.savePlaybackPosition(id, player.currentPosition, player.duration)
+                }
             }
         }
     }
@@ -104,6 +137,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy(): Unit {
+        repository.settings.unlisten(normalizationListener)
         skipController?.close()
         skipController = null
         speedController?.close()

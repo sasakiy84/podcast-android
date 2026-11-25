@@ -22,20 +22,26 @@ class PodcastSyncJob : JobService() {
 
     override fun onStartJob(params: JobParameters): Boolean {
         work = scope.launch {
-            var retry = false
             try {
-                val repository = (application as PodcastApplication).repository
-                repository.load()
-                retry = repository.refresh().isNotEmpty()
-            } catch (error: CancellationException) { throw error }
-            catch (_: java.io.IOException) { retry = true }
-            catch (_: android.database.SQLException) { retry = true }
-            finally { if (coroutineContext[Job]?.isActive == true) jobFinished(params, retry) }
+                (application as PodcastApplication).repository.refresh()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: java.io.IOException) {
+                // Try again at the next scheduled refresh.
+            } catch (_: android.database.SQLException) {
+                // Storage errors should also wait for the next scheduled refresh.
+            } finally {
+                if (coroutineContext[Job]?.isActive == true) jobFinished(params, false)
+            }
         }
         return true
     }
 
-    override fun onStopJob(params: JobParameters): Boolean { work?.cancel(); return true }
+    override fun onStopJob(params: JobParameters): Boolean {
+        work?.cancel()
+        return false
+    }
+
     override fun onDestroy(): Unit { scope.cancel(); super.onDestroy() }
 
     companion object {
