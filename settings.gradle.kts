@@ -10,12 +10,15 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // Maven Central rate-limited the large Android SDK used by Robolectric on release runners.
+        // Maven Central rate-limited the large Robolectric artifacts on release runners.
         exclusiveContent {
             forRepository {
                 maven("https://maven-central.storage-download.googleapis.com/maven2/")
             }
-            filter { includeModule("org.robolectric", "android-all-instrumented") }
+            filter {
+                includeModule("org.robolectric", "android-all-instrumented")
+                includeModule("org.robolectric", "nativeruntime-dist-compat")
+            }
         }
     }
 }

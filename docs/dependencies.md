@@ -23,7 +23,7 @@ AndroidX / Compose / Material3 / Media3、Kotlin・コルーチンを基盤に�
 
 lintは警告もエラーとして扱う。ただしライブラリの新版を知らせる `NewerVersionAvailable` と、Gradle / Android Gradle Pluginの新版を知らせる `AndroidGradlePluginVersion` は除外する。依存の更新は下記のレビュー手順で行い、新版の公開によって同じ固定版のリリースが失敗しないようにする。コード・API互換性の検査と依存のSHA-256検証は維持する。
 
-Robolectric 4.17で使うAndroid 16の `android-all-instrumented:16-robolectric-13921718-i7` は、専用の `robolectricSdk` 構成で取得する。このモジュールの取得には、リリース時のHTTP 429を避けるためGoogle CloudのMaven Centralミラーを使う。Gradleは固定したバージョンとSHA-256を検証し、JARを `app/build/verified-test-sdk` に配置する。RobolectricはそのJARをofflineモードで参照する。 [Google CloudのMaven Centralミラー](https://docs.cloud.google.com/docs/buildpacks/java?hl=ja)
+Robolectric 4.17で使うAndroid 16の `android-all-instrumented:16-robolectric-13921718-i7` は、専用の `robolectricSdk` 構成で取得する。リリース時のHTTP 429を避けるため、このSDKとRobolectricの `nativeruntime-dist-compat` の取得にはGoogle CloudのMaven Centralミラーを使う。Gradleは固定したバージョンとSHA-256を検証し、SDKのJARを `app/build/verified-test-sdk` に配置する。RobolectricはそのJARをofflineモードで参照する。 [Google CloudのMaven Centralミラー](https://docs.cloud.google.com/docs/buildpacks/java?hl=ja)
 
 ## 依存を変更するとき
 
