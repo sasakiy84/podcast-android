@@ -36,12 +36,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-          if [[ -n "$sdk" && -r "$sdk/platforms/android-36/android.jar" &&
-                -x "$sdk/build-tools/36.0.0/aapt2" && -x "$sdk/build-tools/36.0.0/apksigner" ]]; then
-            echo 'Using Android SDK 36 and Build Tools 36.0.0 from the runner image.'
+          runner_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          sdk="$RUNNER_TEMP/android-sdk"
+          if [[ -n "$runner_sdk" && -r "$runner_sdk/platforms/android-36/android.jar" &&
+                -x "$runner_sdk/build-tools/36.0.0/aapt2" && -x "$runner_sdk/build-tools/36.0.0/apksigner" &&
+                -x "$runner_sdk/platform-tools/adb" && -d "$runner_sdk/licenses" ]]; then
+            # Lint checks the newest platform visible in the SDK directory.
+            mkdir -p "$sdk/platforms/android-36" "$sdk/build-tools/36.0.0"
+            cp -a --reflink=auto "$runner_sdk/platforms/android-36/." "$sdk/platforms/android-36/"
+            cp -a --reflink=auto "$runner_sdk/build-tools/36.0.0/." "$sdk/build-tools/36.0.0/"
+            cp -a --reflink=auto "$runner_sdk/platform-tools" "$runner_sdk/licenses" "$sdk/"
+            echo 'Prepared an isolated SDK from the runner image with Android 36 and Build Tools 36.0.0.'
           else
-            sdk="$RUNNER_TEMP/android-sdk"
             mkdir -p "$sdk/cmdline-tools"
             curl -fsSL --retry 2 https://dl.google.com/android/repository/commandlinetools-linux-16111833_latest.zip -o "$RUNNER_TEMP/android-tools.zip"
             printf '0877a1d048fe4a24efe2eff536ca4223f7adeb58648bb81909d33c446918cfa8  %s\n' "$RUNNER_TEMP/android-tools.zip" | sha256sum --check
