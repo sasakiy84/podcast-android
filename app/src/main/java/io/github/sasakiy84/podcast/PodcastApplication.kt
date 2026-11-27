@@ -1,6 +1,7 @@
 package io.github.sasakiy84.podcast
 
 import android.app.Application
+import kotlinx.coroutines.flow.MutableSharedFlow
 
 class PodcastApplication : Application(), coil.ImageLoaderFactory {
     override fun newImageLoader(): coil.ImageLoader = coil.ImageLoader.Builder(this)
@@ -10,6 +11,8 @@ class PodcastApplication : Application(), coil.ImageLoaderFactory {
         .crossfade(false)
         .build()
     val repository: PodcastRepository by lazy { PodcastRepository(this) }
+    internal val mobileDataPlayback by lazy { MobileDataPlayback(this, repository.settings) }
+    internal val playbackErrors = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
 }
 

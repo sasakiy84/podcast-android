@@ -4,11 +4,15 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.activity.viewModels
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var openRequest by androidx.compose.runtime.mutableIntStateOf(0)
@@ -32,8 +36,14 @@ class MainActivity : ComponentActivity() {
         openedFeed = if (savedInstanceState == null) intent.getStringExtra("feed_url") else null
         enableEdgeToEdge()
         window.isNavigationBarContrastEnforced = false
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch { model.refreshOnOpen() }
+                model.observeVisibleScreen()
+            }
+        }
         setContent {
-            val state by model.state.collectAsState()
+            val state by model.state.collectAsStateWithLifecycle()
             PodcastApp(state, ::dispatch, onSettings = { startActivity(android.content.Intent(this, SettingsActivity::class.java)) }, initialFeedUrl = openedFeed, openFeedRequest = openRequest)
         }
     }

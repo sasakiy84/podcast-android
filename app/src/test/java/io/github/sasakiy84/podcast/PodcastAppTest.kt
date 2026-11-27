@@ -34,6 +34,21 @@ class PodcastAppTest {
     }
 
     @Test
+    fun mobilePlaybackWarningShowsTheEpisodeAndOffersCancelAndPlay(): Unit {
+        val actions = mutableListOf<PodcastAction>()
+        val request = MobileDataPlaybackRequest(1, episode.id, episode.title)
+        compose.setContent { PodcastApp(state.copy(mobileDataPlaybackRequest = request), actions::add) }
+        compose.onNodeWithText("モバイルデータ通信で再生しますか？").assertIsDisplayed()
+        compose.onNode(hasText(episode.title) and hasAnyAncestor(isDialog())).assertIsDisplayed()
+        compose.onNodeWithText("キャンセル").performClick()
+        compose.onNodeWithText("再生する").performClick()
+        assertEquals(
+            listOf(PodcastAction.RespondToMobilePlayback(1, false), PodcastAction.RespondToMobilePlayback(1, true)),
+            actions.filterIsInstance<PodcastAction.RespondToMobilePlayback>(),
+        )
+    }
+
+    @Test
     fun keywordSearchDispatchesTheEnteredQuery(): Unit {
         val actions = mutableListOf<PodcastAction>()
         compose.setContent { PodcastApp(onAction = actions::add) }
@@ -81,6 +96,19 @@ class PodcastAppTest {
         compose.onNode(hasText("ダウンロード") and hasAnyAncestor(isDialog())).performClick()
         compose.waitForIdle()
         assertEquals(PodcastAction.Download(episode), actions.last())
+    }
+
+    @Test
+    fun playbackFromTheDownloadsListAndItsDetailsUsesTheDownloadRoute(): Unit {
+        val actions = mutableListOf<PodcastAction>()
+        val downloaded = library.copy(downloads = mapOf(episode.id to EpisodeDownload(1, DownloadStatus.Complete)))
+        compose.setContent { PodcastApp(PodcastUiState(library = downloaded, playback = PlaybackUi(connected = true)), actions::add) }
+        compose.onNodeWithContentDescription("タブ: エピソード").performClick()
+        compose.onNodeWithContentDescription("再生: ${episode.title}").performClick()
+        compose.onNodeWithContentDescription("エピソード詳細: ${episode.title}").performClick()
+        compose.onNode(hasText("再生", substring = false) and hasAnyAncestor(isDialog())).performClick()
+
+        assertEquals(List(2) { PodcastAction.Play(episode, fromDownloads = true) }, actions.filterIsInstance<PodcastAction.Play>())
     }
 
     @Test
@@ -237,9 +265,9 @@ class PodcastAppTest {
         compose.setContent { SettingsPage(ui.value, {}, {}, { imports++ }, { exports++ }) }
         compose.onNodeWithText("OPML をインポート").assertIsEnabled()
         compose.onNodeWithText("OPML をエクスポート").assertIsNotEnabled()
-        compose.onNodeWithText("OPML をインポート").performClick()
+        compose.onNodeWithText("OPML をインポート").performScrollTo().performClick()
         compose.runOnIdle { ui.value = state }
-        compose.onNodeWithText("OPML をエクスポート").performClick()
+        compose.onNodeWithText("OPML をエクスポート").performScrollTo().performClick()
         compose.waitForIdle()
         assertEquals(1, imports); assertEquals(1, exports)
     }

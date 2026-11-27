@@ -19,10 +19,22 @@ import coil.compose.AsyncImage
 
 @Composable
 internal fun DownloadButton(episode: Episode, download: EpisodeDownload?, action: (PodcastAction) -> Unit): Unit {
+    if (download != null && (download.canStartManually ||
+            (download.status == DownloadStatus.Failed && download.reason.isNotBlank()))) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+            Text(download.reason, style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { action(PodcastAction.Download(episode)) }) {
+                Text(if (download.canStartManually) "今すぐダウンロード" else "再試行")
+            }
+            if (download.canStartManually)
+                TextButton(onClick = { action(PodcastAction.RemoveDownload(episode)) }) { Text("取消") }
+        }
+        return
+    }
     when (download?.status) {
         DownloadStatus.Complete -> TextButton(onClick = { action(PodcastAction.RemoveDownload(episode)) }) { Icon(AppIcons.DownloadDone, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("ダウンロードを削除") }
         DownloadStatus.Running, DownloadStatus.Waiting -> TextButton(onClick = { action(PodcastAction.RemoveDownload(episode)) }) {
-            Icon(AppIcons.Close, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(if (download.status == DownloadStatus.Waiting) "待機中・取消" else "${download.percent}%・取消")
+            Icon(AppIcons.Close, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(if (download.status == DownloadStatus.Waiting) "${download.reason.ifBlank { "待機中" }}・取消" else "${download.percent}%・取消")
         }
         else -> TextButton(onClick = { action(PodcastAction.Download(episode)) }) { Icon(AppIcons.Download, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(if (download?.status == DownloadStatus.Failed) "再試行" else "ダウンロード") }
     }
@@ -69,6 +81,32 @@ internal fun ConfirmationSheet(title: String, description: String, confirm: Stri
             }
         }
     }
+}
+
+@Composable
+internal fun MobileDataPlaybackDialog(
+    request: MobileDataPlaybackRequest,
+    action: (PodcastAction) -> Unit,
+): Unit {
+    val cancel = { action(PodcastAction.RespondToMobilePlayback(request.id, allow = false)) }
+    AlertDialog(
+        onDismissRequest = cancel,
+        title = { Text("モバイルデータ通信で再生しますか？") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (request.title.isNotBlank()) {
+                    Text(request.title, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                }
+                Text("この音声は端末に保存されていません。")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { action(PodcastAction.RespondToMobilePlayback(request.id, allow = true)) }) {
+                Text("再生する")
+            }
+        },
+        dismissButton = { TextButton(onClick = cancel) { Text("キャンセル") } },
+    )
 }
 
 @Composable

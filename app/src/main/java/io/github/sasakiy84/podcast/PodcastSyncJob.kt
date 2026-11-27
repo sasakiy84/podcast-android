@@ -23,7 +23,12 @@ class PodcastSyncJob : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
         work = scope.launch {
             try {
-                (application as PodcastApplication).repository.refresh()
+                val repository = (application as PodcastApplication).repository
+                val hours = repository.settings.refreshHours
+                if (hours > 0) {
+                    val interval = TimeUnit.HOURS.toMillis(hours.toLong())
+                    repository.refreshIfDue(interval - flexMillis(interval))
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (_: java.io.IOException) {
@@ -46,13 +51,19 @@ class PodcastSyncJob : JobService() {
 
     companion object {
         private const val JOB_ID = 7301
-        fun schedule(context: Context, enabled: Boolean, hours: Int = 1): Unit {
+        private fun flexMillis(interval: Long): Long = maxOf(TimeUnit.MINUTES.toMillis(5), interval / 20)
+
+        fun schedule(context: Context, enabled: Boolean, hours: Int): Unit {
             val scheduler = context.getSystemService(JobScheduler::class.java)
-            if (!enabled) { scheduler.cancel(JOB_ID); return }
-            if (scheduler.getPendingJob(JOB_ID)?.intervalMillis == TimeUnit.HOURS.toMillis(hours.toLong())) return
+            if (!enabled || hours == 0) { scheduler.cancel(JOB_ID); return }
+            val interval = TimeUnit.HOURS.toMillis(hours.toLong())
+            val flex = flexMillis(interval)
+            val current = scheduler.getPendingJob(JOB_ID)
+            if (current?.intervalMillis == interval && current.flexMillis == flex && current.isRequireBatteryNotLow) return
             val job = JobInfo.Builder(JOB_ID, ComponentName(context, PodcastSyncJob::class.java))
                 .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                .setPeriodic(TimeUnit.HOURS.toMillis(hours.toLong()))
+                .setRequiresBatteryNotLow(true)
+                .setPeriodic(interval, flex)
                 .setPersisted(true)
                 .build()
             if (scheduler.schedule(job) != JobScheduler.RESULT_SUCCESS) throw PodcastException("バックグラウンド更新を設定できませんでした。")

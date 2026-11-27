@@ -91,7 +91,6 @@ class AudioAnalysisJob : JobService() {
 class DownloadCompletionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
-        AudioAnalysisJob.schedule(context)
         val managerId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
         val application = context.applicationContext as? PodcastApplication ?: return
         if (managerId < 0) return

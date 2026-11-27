@@ -94,6 +94,14 @@ internal fun PodcastDetails(
     var automation by remember { mutableStateOf(false) }
     var sourceMenu by remember { mutableStateOf(false) }
     var speedMenu by remember { mutableStateOf(false) }
+    var clearing by rememberSaveable(podcast.feedUrl) { mutableStateOf(false) }
+    val library = state.library
+    val canClear = remember(podcast.feedUrl, library.episodes, library.queues, library.downloads.keys) {
+        val feedEpisodeIds = library.episodes.asSequence()
+            .filter { it.feedUrl == podcast.feedUrl }.map { it.id }.toHashSet()
+        library.downloads.keys.any { it in feedEpisodeIds } ||
+            library.queues.any { queue -> queue.episodeIds.any { it in feedEpisodeIds } }
+    }
     LaunchedEffect(
         podcast.feedUrl,
         state.library.episodeCounts[podcast.feedUrl],
@@ -120,6 +128,11 @@ internal fun PodcastDetails(
                 }
                 TextButton(onClick = { sourceMenu = true }) { Text("購読元") }
                 IconButton(onClick = { settingsMenu = true }) { Icon(AppIcons.Settings, "番組の設定") }
+            }
+        }
+        item {
+            TextButton(onClick = { clearing = true }, enabled = canClear) {
+                Text("すべてのキューから外して保存音声を削除")
             }
         }
         if (podcast.description.isNotBlank()) item { CollapsibleDescription(podcast.description) }
@@ -168,6 +181,17 @@ internal fun PodcastDetails(
                 }
             }
     }
+    if (clearing)
+        ConfirmationSheet(
+            "番組の保存音声とキュー登録を削除しますか？",
+            "「${podcast.title}」のエピソードをすべてのキューから外し、保存音声を削除します。この番組を再生中の場合は停止します。",
+            "削除",
+            onDismiss = { clearing = false },
+            onConfirm = {
+                action(PodcastAction.ClearFeedAndDownloads(podcast.feedUrl))
+                clearing = false
+            },
+        )
     if (automation) PodcastAutomationSheet(podcast, state, action) { automation = false }
     if (settingsMenu) PodcastSettingsSheet(podcast, state, action) { settingsMenu = false }
     if (sourceMenu) PodcastSourceSheet(podcast) { sourceMenu = false }
@@ -187,7 +211,7 @@ internal fun EpisodesPage(
     action: (PodcastAction) -> Unit,
     queue: (Episode) -> Unit,
     backEnabled: Boolean = true,
-    details: (Episode) -> Unit,
+    details: (Episode, Boolean) -> Unit,
 ): Unit {
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -339,12 +363,17 @@ internal fun EpisodesPage(
                 contentPadding = PaddingValues(horizontal = 16.dp),
             ) {
                 items(episodes, key = { it.id }) { episode ->
+                    val fromDownloads = filter == EpisodeFilter.Downloaded
                     EpisodeCard(
                         episode,
                         state.library.podcasts.firstOrNull { it.feedUrl == episode.feedUrl },
                         state,
-                        action,
-                        details,
+                        { event ->
+                            if (fromDownloads && event is PodcastAction.Play)
+                                action(event.copy(fromDownloads = true))
+                            else action(event)
+                        },
+                        { details(it, fromDownloads) },
                         onQueue = queue,
                         swipes = swipes,
                     )

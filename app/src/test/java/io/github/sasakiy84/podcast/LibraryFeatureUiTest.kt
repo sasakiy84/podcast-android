@@ -263,6 +263,7 @@ class LibraryFeatureUiTest {
         withModel((1..3).map(::episode)) { model, repo ->
             compose.onNodeWithContentDescription("タブ: キュー").performClick()
             compose.onNodeWithText("ニュース").performClick()
+            compose.onNodeWithText("キューとローカルデータを削除").assertIsDisplayed()
             compose.onNodeWithContentDescription("エピソード詳細: エピソード1").performTouchInput { longClick() }
             compose.onNodeWithText("キューから外す").performClick()
             awaitState { model.state.value.undo != null }
@@ -281,10 +282,31 @@ class LibraryFeatureUiTest {
         }
 
     @Test
+    fun feedCleanupIsVisibleAtTheTopAndRequiresConfirmation(): Unit =
+        withModel((1..3).map(::episode)) { model, repo ->
+            compose.onNodeWithContentDescription(show.title).performClick()
+            val clear = compose.onNodeWithText("すべてのキューから外して保存音声を削除")
+            clear.assertIsDisplayed().performClick()
+            compose.onNodeWithText("番組の保存音声とキュー登録を削除しますか？").assertIsDisplayed()
+            screenshot("clear-feed-confirmation")
+            compose.onNodeWithText("キャンセル").performClick()
+            compose.runOnIdle { assertEquals(3, repo.store.queueEpisodeIds("a").size) }
+
+            clear.performClick()
+            compose.onNode(hasText("削除") and hasAnyAncestor(isDialog())).performClick()
+            awaitState { model.state.value.library.queues.all { it.episodeIds.isEmpty() } }
+
+            clear.assertIsNotEnabled()
+            assertEquals(listOf(PodcastAction.ClearFeedAndDownloads(show.feedUrl)),
+                events.filterIsInstance<PodcastAction.ClearFeedAndDownloads>())
+            compose.onNodeWithText("エピソード3").assertIsDisplayed()
+        }
+
+    @Test
     fun managementShowsStorageFailuresAndWifiWaitAndRetriesTheSelectedFeed(): Unit {
         val ep = episode(1)
         val actions = mutableListOf<PodcastAction>()
-        val download = EpisodeDownload(1, DownloadStatus.Waiting, reason = "Wi-Fi 接続待ち")
+        val download = EpisodeDownload(1, DownloadStatus.Waiting, reason = "Wi-Fi 接続待ち", canStartManually = true)
         val state =
             PodcastUiState(
                 library =
@@ -302,6 +324,10 @@ class LibraryFeatureUiTest {
         compose.setContent { SettingsPage(state, actions::add, {}, {}, {}) }
         compose.onNodeWithText("ストレージと更新").performScrollTo().performClick()
         compose.onNodeWithText("Wi-Fi 接続待ち").assertIsDisplayed()
+        compose.mainClock.advanceTimeBy(11_000)
+        assertEquals(1, actions.count { it == PodcastAction.LoadManagement })
+        compose.onNodeWithContentDescription("今すぐダウンロード: ${ep.title}").performClick()
+        assertTrue(PodcastAction.RetryDownload(ep) in actions)
         screenshot("management-storage")
         compose.onNodeWithText("更新").performClick()
         compose.onNodeWithText("HTTP 503").assertIsDisplayed()

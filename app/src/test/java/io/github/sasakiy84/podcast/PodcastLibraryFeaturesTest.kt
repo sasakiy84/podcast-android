@@ -196,6 +196,35 @@ class PodcastLibraryFeaturesTest {
     }
 
     @Test
+    fun automaticRefreshChecksOverdueFeedsOnceAndManualRefreshCanCheckAgain(): Unit = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        context.deleteDatabase("podcasts.db")
+        val overdue = show.copy(feedUrl = "https://example.org/overdue")
+        val recent = show.copy(feedUrl = "https://example.org/recent")
+        val fetched = java.util.concurrent.ConcurrentLinkedQueue<String>()
+        val repository = PodcastRepository(context, fetchFeed = { url ->
+            fetched.add(url)
+            PodcastFeed(show.copy(feedUrl = url), emptyList())
+        })
+        try {
+            repository.store.importSubscriptions(listOf(overdue, recent))
+            val now = System.currentTimeMillis()
+            repository.store.recordFeedUpdate(overdue.feedUrl, null, now - TimeUnit.HOURS.toMillis(7))
+            repository.store.recordFeedUpdate(recent.feedUrl, null, now, "HTTP 503")
+            val age = TimeUnit.HOURS.toMillis(6)
+
+            listOf(async { repository.refreshIfDue(age) }, async { repository.refreshIfDue(age) }).awaitAll()
+
+            assertEquals(listOf(overdue.feedUrl), fetched.toList())
+            repository.refresh(recent.feedUrl)
+            assertEquals(listOf(overdue.feedUrl, recent.feedUrl), fetched.toList())
+        } finally {
+            repository.store.close()
+            context.deleteDatabase("podcasts.db")
+        }
+    }
+
+    @Test
     fun refreshIsBoundedAndOneBadFeedDoesNotAbortTheOtherSubscriptions(): Unit = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         context.deleteDatabase("podcasts.db")

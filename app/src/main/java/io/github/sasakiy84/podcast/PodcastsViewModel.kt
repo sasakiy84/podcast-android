@@ -2,27 +2,37 @@ package io.github.sasakiy84.podcast
 
 import android.app.Application
 import android.content.ComponentName
+import android.net.ConnectivityManager
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
 class PodcastsViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = (application as PodcastApplication).repository
+    private val podcastApplication = application as PodcastApplication
+    private val repository = podcastApplication.repository
+    private val mobileDataPlayback = podcastApplication.mobileDataPlayback
     private val mutableState = MutableStateFlow(PodcastUiState())
     val state: StateFlow<PodcastUiState> = mutableState
     private var controller: MediaController? = null
+    private var connection: ListenableFuture<MediaController>? = null
     private val playbackCommands = PlaybackCommands(repository, { state.value }, ::launchOperation)
     private var episodeSearchJob: Job? = null
     private var episodeSearchGeneration = 0L
@@ -30,6 +40,7 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
     private var episodeSearchLimit = 150
     private var pendingUndo: Pair<UndoNotice, LibraryUndo>? = null
     private var undoTimer: Job? = null
+    private var managementJob: Job? = null
     private var searchJob: Job? = null
     private var previewJob: Job? = null
     private val podcastLoads = mutableSetOf<String>()
@@ -40,6 +51,10 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
                 key in
                     setOf(
                         "wifi_only",
+                        "warn_on_mobile_playback",
+                        "auto_download_charging",
+                        "auto_download_storage",
+                        "auto_download_limit",
                         "refresh_hours",
                         "default_queue",
                         "normalize_volume",
@@ -52,15 +67,20 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             )
                 updatePreferences()
         }
-    private val connection =
-        MediaController.Builder(
-                application,
-                SessionToken(application, ComponentName(application, PlaybackService::class.java)),
-            )
-            .buildAsync()
-
     init {
         repository.settings.listen(preferenceListener)
+        viewModelScope.launch {
+            mobileDataPlayback.request.collect { request ->
+                mutableState.update { it.copy(mobileDataPlaybackRequest = request) }
+            }
+        }
+        viewModelScope.launch {
+            podcastApplication.playbackErrors.collect {
+                mutableState.update {
+                    it.copy(message = "音声を再生できませんでした。接続状態や配信元を確認し、再試行してください。")
+                }
+            }
+        }
         viewModelScope.launch {
             repository.library.collect { library ->
                 mutableState.update {
@@ -72,34 +92,30 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             runOperation {
                 repository.load()
                 repository.configureBackgroundSync()
-            }
-            while (true) {
-                delay(2000)
-                if (
-                    repository.library.value.downloads.values.any {
-                        it.status == DownloadStatus.Running || it.status == DownloadStatus.Waiting
-                    }
-                ) {
-                    runOperation { repository.load() }
-                }
+                repository.processAutomaticDownloads()
             }
         }
-        connection.addListener(
+        connectPlayback()
+    }
+
+    private fun connectPlayback(): Unit {
+        if (connection != null) return
+        val future = MediaController.Builder(
+            podcastApplication,
+            SessionToken(podcastApplication, ComponentName(podcastApplication, PlaybackService::class.java)),
+        ).buildAsync()
+        connection = future
+        future.addListener(
             {
+                if (connection !== future) return@addListener
                 try {
-                    controller = connection.get()
+                    controller = future.get()
                     controller?.addListener(
                         object : Player.Listener {
                             override fun onEvents(player: Player, events: Player.Events): Unit {
                                 updatePlayback()
                             }
 
-                            override fun onPlayerError(error: PlaybackException): Unit {
-                                controller?.pause()
-                                mutableState.update {
-                                    it.copy(message = "音声を再生できませんでした。接続状態や配信元を確認し、再試行してください。")
-                                }
-                            }
                         }
                     )
                     updatePlayback()
@@ -109,14 +125,62 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
                     /* The ViewModel has already been cleared. */
                 }
             },
-            ContextCompat.getMainExecutor(application),
+            ContextCompat.getMainExecutor(podcastApplication),
         )
-        viewModelScope.launch {
-            while (true) {
-                delay(1000)
-                updatePlayback()
+    }
+
+    private fun disconnectPlayback(): Unit {
+        val pending = connection ?: return
+        connection = null
+        controller = null
+        MediaController.releaseFuture(pending)
+        mutableState.update { it.copy(playback = it.playback.copy(connected = false)) }
+    }
+
+    internal suspend fun observeVisibleScreen(): Unit = coroutineScope {
+        launch {
+            connectPlayback()
+            try {
+                awaitCancellation()
+            } finally {
+                disconnectPlayback()
             }
         }
+        launch {
+            runOperation { repository.refreshDownloadProgress() }
+            repository.library.map { library ->
+                when {
+                    library.downloads.values.any { it.status == DownloadStatus.Running } -> 2_000L
+                    library.downloads.values.any {
+                        it.managerId >= 0 && it.status == DownloadStatus.Waiting
+                    } -> 5_000L
+                    else -> null
+                }
+            }.distinctUntilChanged().collectLatest { interval ->
+                if (interval == null) return@collectLatest
+                while (true) {
+                    delay(interval)
+                    runOperation { repository.refreshDownloadProgress() }
+                }
+            }
+        }
+        launch {
+            updatePlayback()
+            state.map { it.playback.playing && !it.playback.buffering }
+                .distinctUntilChanged().collectLatest { playing ->
+                    if (!playing) return@collectLatest
+                    while (true) {
+                        delay(1_000)
+                        updatePlayback()
+                    }
+                }
+        }
+    }
+
+    internal suspend fun refreshOnOpen(): Unit {
+        if (podcastApplication.getSystemService(ConnectivityManager::class.java).activeNetwork == null) return
+        val hours = repository.settings.refreshHours.takeIf { it > 0 } ?: DEFAULT_REFRESH_HOURS
+        runOperation(showError = false) { repository.refreshIfDue(TimeUnit.HOURS.toMillis(hours.toLong())) }
     }
 
     fun dispatch(action: PodcastAction): Unit {
@@ -158,10 +222,7 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             is PodcastAction.DismissUndo -> clearUndo(action.id)
             is PodcastAction.RetryFeed -> retryFeed(action.feedUrl)
             is PodcastAction.RetryDownload ->
-                launchOperation {
-                    repository.retryDownload(action.episode)
-                    loadManagement()
-                }
+                launchOperation { repository.download(action.episode) }
             PodcastAction.LoadManagement -> loadManagement()
             PodcastAction.ClearArtworkCache ->
                 launchOperation {
@@ -198,6 +259,27 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
                     repository.setWifiOnly(action.enabled)
                     updatePreferences()
                 }
+            is PodcastAction.WarnOnMobilePlayback -> repository.settings.setWarnOnMobilePlayback(action.enabled)
+            is PodcastAction.RespondToMobilePlayback -> {
+                val request = mobileDataPlayback.request.value
+                val player = controller
+                if (!action.allow) mobileDataPlayback.respond(action.requestId, false)
+                else if (request != null && player?.currentMediaItem?.mediaId == request.episodeId &&
+                    mobileDataPlayback.respond(action.requestId, true)
+                ) {
+                    player.prepare()
+                    player.play()
+                }
+            }
+            is PodcastAction.AutoDownloadChargingOnly -> launchOperation {
+                repository.settings.setAutoDownloadChargingOnly(action.enabled)
+                repository.processAutomaticDownloads()
+            }
+            is PodcastAction.AutoDownloadRequireStorage -> launchOperation {
+                repository.settings.setAutoDownloadRequireStorage(action.enabled)
+                repository.processAutomaticDownloads()
+            }
+            is PodcastAction.AutoDownloadLimit -> repository.settings.setAutoDownloadLimit(action.count)
             is PodcastAction.RefreshInterval ->
                 launchOperation {
                     repository.settings.setRefreshHours(action.hours)
@@ -255,6 +337,11 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
                     pendingUndo?.first?.id?.let(::clearUndo)
                     playbackCommands.clearQueueAndDownloads(controller, action.id)
                 }
+            is PodcastAction.ClearFeedAndDownloads ->
+                launchOperation {
+                    pendingUndo?.first?.id?.let(::clearUndo)
+                    playbackCommands.clearFeedAndDownloads(controller, action.feedUrl)
+                }
             is PodcastAction.QueueMembership ->
                 launchOperation {
                     if (action.included)
@@ -278,7 +365,10 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
                 controller?.let { playbackCommands.playQueue(it, action.queueId, action.episodeId) }
                     ?: Unit
             is PodcastAction.Play ->
-                controller?.let { playbackCommands.play(it, action.episode) } ?: Unit
+                controller?.let {
+                    if (action.fromDownloads) playbackCommands.playDownloaded(it, action.episode)
+                    else playbackCommands.play(it, action.episode)
+                } ?: Unit
             is PodcastAction.Seek ->
                 controller?.let {
                     seekPlayback(it, action.positionMs)
@@ -333,12 +423,9 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
             is PodcastAction.LoadChapters -> loadChapters(action.episodeId, action.retry)
             is PodcastAction.PlayChapter ->
                 controller?.let {
-                    playbackCommands.playChapter(
-                        it,
-                        action.episode,
-                        action.positionMs,
-                        ::updatePlayback,
-                    )
+                    if (action.fromDownloads && it.currentMediaItem?.mediaId != action.episode.id)
+                        playbackCommands.playDownloaded(it, action.episode, action.positionMs)
+                    else playbackCommands.playChapter(it, action.episode, action.positionMs, ::updatePlayback)
                 } ?: Unit
             PodcastAction.LoadMoreEpisodes -> launchOperation { repository.loadMoreEpisodes() }
             is PodcastAction.Download -> launchOperation { repository.download(action.episode) }
@@ -400,17 +487,18 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun loadManagement(): Unit {
-        if (state.value.managementLoading) return
-        mutableState.update { it.copy(managementLoading = true, managementError = null) }
-        viewModelScope.launch {
+        managementJob?.cancel()
+        managementJob = viewModelScope.launch {
+            mutableState.update { it.copy(managementLoading = true, managementError = null) }
             try {
-                val failure = runOperation {
+                val failure = runOperation(showError = false) {
                     val snapshot = repository.management()
                     mutableState.update { it.copy(management = snapshot) }
                 }
                 if (failure != null) mutableState.update { it.copy(managementError = failure) }
             } finally {
-                mutableState.update { it.copy(managementLoading = false) }
+                if (kotlinx.coroutines.currentCoroutineContext()[Job]?.isCancelled != true)
+                    mutableState.update { it.copy(managementLoading = false) }
             }
         }
     }
@@ -702,8 +790,7 @@ class PodcastsViewModel(application: Application) : AndroidViewModel(application
 
     override fun onCleared(): Unit {
         repository.settings.unlisten(preferenceListener)
-        MediaController.releaseFuture(connection)
-        controller = null
+        disconnectPlayback()
         super.onCleared()
     }
 }

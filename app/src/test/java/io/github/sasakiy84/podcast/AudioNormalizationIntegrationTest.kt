@@ -5,7 +5,6 @@ import android.app.job.JobInfo
 import android.app.job.JobParameters
 import android.app.job.JobScheduler
 import android.content.ComponentName
-import android.content.Intent
 import android.media.MediaFormat
 import android.net.Uri
 import android.os.Environment
@@ -232,8 +231,7 @@ class AudioNormalizationIntegrationTest {
             profiles.save("id", file, -25.0)
             file.writeBytes(byteArrayOf(1, 2))
             assertTrue(profiles.needsAnalysis("id", file))
-            DownloadCompletionReceiver()
-                .onReceive(context, Intent(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+            AudioAnalysisJob.schedule(context)
             val job =
                 requireNotNull(
                     context

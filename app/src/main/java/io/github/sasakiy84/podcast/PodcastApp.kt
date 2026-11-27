@@ -42,6 +42,12 @@ fun PodcastApp(
             var queueEpisode by rememberSaveable { mutableStateOf<String?>(null) }
             var episodeSnapshot by remember { mutableStateOf<Episode?>(null) }
             var episodeDetails by rememberSaveable { mutableStateOf<String?>(null) }
+            var detailsFromDownloads by rememberSaveable { mutableStateOf(false) }
+            fun openEpisodeDetails(episode: Episode, fromDownloads: Boolean = false) {
+                episodeSnapshot = episode
+                episodeDetails = episode.id
+                detailsFromDownloads = fromDownloads
+            }
             val routeStates = rememberSaveableStateHolder()
             var libraryMenu by remember { mutableStateOf(false) }
             var unsubscribe by remember { mutableStateOf<Podcast?>(null) }
@@ -257,8 +263,7 @@ fun PodcastApp(
                                             onAction,
                                             queue = { queueEpisode = it.id },
                                         ) {
-                                            episodeSnapshot = it
-                                            episodeDetails = it.id
+                                            openEpisodeDetails(it)
                                         }
                                     }
                                 candidate != null ->
@@ -283,10 +288,8 @@ fun PodcastApp(
                                             onAction,
                                             queue = { queueEpisode = it.id },
                                             backEnabled = !playerHandlesBack,
-                                        ) {
-                                            episodeSnapshot = it
-                                            episodeDetails = it.id
-                                        }
+                                            details = ::openEpisodeDetails,
+                                        )
                                     }
                                 tab == HomeTab.Queues ->
                                     routeStates.SaveableStateProvider("queues") {
@@ -296,8 +299,7 @@ fun PodcastApp(
                                             onQueue = { queueEpisode = it.id },
                                             backEnabled = !playerHandlesBack,
                                         ) {
-                                            episodeSnapshot = it
-                                            episodeDetails = it.id
+                                            openEpisodeDetails(it)
                                         }
                                     }
                                 else ->
@@ -328,7 +330,16 @@ fun PodcastApp(
                     EpisodeDetailsSheet(
                         episode,
                         state,
-                        onAction,
+                        onAction = { event ->
+                            onAction(
+                                when {
+                                    !detailsFromDownloads -> event
+                                    event is PodcastAction.Play -> event.copy(fromDownloads = true)
+                                    event is PodcastAction.PlayChapter -> event.copy(fromDownloads = true)
+                                    else -> event
+                                }
+                            )
+                        },
                         onDismiss = { episodeDetails = null },
                         openPodcast = { podcast ->
                             episodeDetails = null
@@ -362,6 +373,7 @@ fun PodcastApp(
                     },
                 )
             }
+            state.mobileDataPlaybackRequest?.let { MobileDataPlaybackDialog(it, onAction) }
         }
     }
 }

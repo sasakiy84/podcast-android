@@ -47,15 +47,22 @@ class AppNavigationTest {
         val repository = PodcastRepository(context)
         try {
             repository.store.saveFeed(PodcastFeed(show, listOf(episode)))
-            repository.settings.setRefreshHours(6); repository.configureBackgroundSync()
-            val job = context.getSystemService(android.app.job.JobScheduler::class.java).allPendingJobs.single()
+            val scheduler = context.getSystemService(android.app.job.JobScheduler::class.java)
+            repository.configureBackgroundSync()
+            val job = scheduler.allPendingJobs.single()
             assertEquals(6 * 3600_000L, job.intervalMillis)
             assertTrue(job.isPersisted)
+            assertTrue(job.isRequireBatteryNotLow)
             assertTrue(job.requiredNetwork?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true)
+            repository.settings.setRefreshHours(1); repository.configureBackgroundSync()
+            assertEquals(3600_000L, scheduler.allPendingJobs.single().intervalMillis)
+            repository.settings.setRefreshHours(0); repository.configureBackgroundSync()
+            assertTrue(scheduler.allPendingJobs.isEmpty())
+            assertEquals(0, PlaybackPreferences(repository.preferences).refreshHours)
             repository.settings.setRefreshHours(12); repository.configureBackgroundSync()
-            assertEquals(12 * 3600_000L, context.getSystemService(android.app.job.JobScheduler::class.java).allPendingJobs.single().intervalMillis)
+            assertEquals(12 * 3600_000L, scheduler.allPendingJobs.single().intervalMillis)
             repository.unsubscribe(show)
-            assertTrue(context.getSystemService(android.app.job.JobScheduler::class.java).allPendingJobs.isEmpty())
+            assertTrue(scheduler.allPendingJobs.isEmpty())
         } finally { repository.store.close(); context.deleteDatabase("podcasts.db") }
     }
     @Test fun playerFollowsTheFingerBeforeSettlingClosed(): Unit {
@@ -73,10 +80,18 @@ class AppNavigationTest {
     @Test fun settingsRowsDispatchWifiIntervalAndDefaultQueue(): Unit {
         val events = mutableListOf<PodcastAction>()
         compose.setContent { SettingsPage(PodcastUiState(library = Library(queues = listOf(PlaybackQueue("tech", "技術")))), events::add, {}, {}, {}) }
-        compose.onNodeWithText("Wi-Fi のみでダウンロード").performClick()
-        assertEquals(PodcastAction.WifiOnly(true), events.last())
+        compose.onNodeWithText("自動ダウンロード").performClick()
+        compose.onNodeWithText("Wi-Fi のみ").performClick()
+        assertEquals(PodcastAction.WifiOnly(false), events.last())
+        compose.onNodeWithText("充電中のみ開始").performClick()
+        assertEquals(PodcastAction.AutoDownloadChargingOnly(true), events.last())
+        compose.onNodeWithText("上限なし").performClick()
+        assertEquals(PodcastAction.AutoDownloadLimit(Int.MAX_VALUE), events.last())
+        compose.onNodeWithContentDescription("設定に戻る").performClick()
         compose.onNodeWithText("6h").performClick()
         assertEquals(PodcastAction.RefreshInterval(6), events.last())
+        compose.onNodeWithText("オフ").performClick()
+        assertEquals(PodcastAction.RefreshInterval(0), events.last())
         compose.onNodeWithText("技術").performClick()
         assertEquals(PodcastAction.DefaultQueue("tech"), events.last())
     }

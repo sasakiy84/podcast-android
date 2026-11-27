@@ -36,11 +36,13 @@ internal fun CompactDownloadButton(
     action: (PodcastAction) -> Unit,
     modifier: Modifier = Modifier,
 ): Unit {
-    val active = download?.status in listOf(DownloadStatus.Waiting, DownloadStatus.Running)
+    val manualStart = download?.canStartManually == true
+    val active = !manualStart && download?.status in listOf(DownloadStatus.Waiting, DownloadStatus.Running)
     val complete = download?.status == DownloadStatus.Complete
     val label =
         when {
             complete -> "ダウンロードを削除"
+            manualStart -> "${download?.reason}。今すぐダウンロード"
             active -> "ダウンロードを取消"
             download?.status == DownloadStatus.Failed -> "ダウンロードを再試行"
             else -> "ダウンロード"

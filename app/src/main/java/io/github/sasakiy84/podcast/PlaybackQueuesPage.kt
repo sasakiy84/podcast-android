@@ -181,6 +181,14 @@ internal fun PlaybackQueuesPage(
                     }
                 }
             }
+            item(key = "clear-queue") {
+                TextButton(
+                    onClick = { clearing = true },
+                    enabled = queue.episodeIds.isNotEmpty(),
+                ) {
+                    Text("キューとローカルデータを削除")
+                }
+            }
             if (ruleSettings) {
                 item {
                     Text(
@@ -346,16 +354,6 @@ internal fun PlaybackQueuesPage(
                             )
                         }
                     }
-            }
-        }
-        if (queue != null) {
-            item(key = "clear-queue") {
-                TextButton(
-                    onClick = { clearing = true },
-                    enabled = queue.episodeIds.isNotEmpty(),
-                ) {
-                    Text("キューとローカルデータを削除")
-                }
             }
         }
     }

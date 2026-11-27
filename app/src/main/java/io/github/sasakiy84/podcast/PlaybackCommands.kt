@@ -1,6 +1,7 @@
 package io.github.sasakiy84.podcast
 
 import androidx.core.content.edit
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 
 /** User playback commands. The ViewModel owns connection lifetime and coroutine/error handling. */
@@ -68,6 +69,55 @@ internal class PlaybackCommands(
         }
     }
 
+    fun playDownloaded(player: Player, episode: Episode, chapterPositionMs: Long? = null): Unit {
+        launchOperation {
+            val progress = repository.library.value.progress[episode.id] ?: ListeningProgress()
+            if (progress.completed) {
+                repository.updateProgress(
+                    episode.id,
+                    chapterPositionMs?.let { ListeningProgress(it, episode.durationMs) } ?: ListeningProgress(),
+                    resetCompletion = true,
+                )
+            }
+            val library = repository.library.value
+            val activeQueueId = repository.preferences.getString("active_queue", null)
+            val queue = downloadedEpisodeQueue(episode, library, activeQueueId)
+            val sameEpisode = player.currentMediaItem?.mediaId == episode.id
+            val resumable =
+                sameEpisode && !progress.completed && player.playbackState != Player.STATE_ENDED
+            if (chapterPositionMs == null && resumable &&
+                (player.playWhenReady || activeQueueId == queue.id)
+            ) {
+                toggle(player)
+                return@launchOperation
+            }
+            val position =
+                chapterPositionMs ?: player.currentPosition.takeIf { resumable && it > 0 }
+                    ?: playbackStart(episode, progress, repository.settings.options(episode.feedUrl))
+            val episodesById = library.episodes.associateBy { it.id }
+            val episodes = queuePlaybackIds(queue, episode.id, library).mapNotNull(episodesById::get)
+            val index = episodes.indexOfFirst { it.id == episode.id }
+            if (index >= 0)
+                startQueue(player, queue.id, episodes, index, position, applyStartSkip = chapterPositionMs == null)
+        }
+    }
+
+    private fun downloadedEpisodeQueue(episode: Episode, library: Library, activeQueueId: String?): PlaybackQueue {
+        val memberships = library.queues.filter { episode.id in it.episodeIds }
+        memberships.firstOrNull { it.id == activeQueueId }?.let { return it }
+        memberships.firstOrNull()?.let { return it }
+
+        val defaultQueue = library.queues.firstOrNull { it.id == repository.settings.defaultQueue }
+            ?: library.queues.firstOrNull { it.id == "default" }
+            ?: PlaybackQueue("default", "あとで聴く")
+        val feedQueueIds = library.queueRules
+            .filter { it.enabled && it.feedUrl == episode.feedUrl }
+            .map { it.queueId }
+            .toSet()
+        return library.queues.firstOrNull { it.id != defaultQueue.id && it.id in feedQueueIds }
+            ?: defaultQueue
+    }
+
     fun previous(player: Player): Unit {
         if (!player.hasPreviousMediaItem()) return
         val target = player.getMediaItemAt(player.previousMediaItemIndex).mediaId
@@ -118,19 +168,38 @@ internal class PlaybackCommands(
     }
 
     suspend fun clearQueueAndDownloads(player: Player?, queueId: String): Unit {
-        if (repository.preferences.getString("active_queue", null) == queueId) {
-            val id = player?.currentMediaItem?.mediaId
-            val progress = player?.let {
-                ListeningProgress(it.currentPosition.coerceAtLeast(0), it.duration.coerceAtLeast(0))
-            }
-            repository.preferences.edit { remove("active_queue"); remove("current") }
-            player?.pause()
-            player?.stop()
-            player?.clearMediaItems()
-            if (id != null && progress != null) repository.updateProgress(id, progress)
-        }
+        if (repository.preferences.getString("active_queue", null) == queueId)
+            stopPlaybackAndSavePosition(player)
         val episode = state().library.episodes.firstOrNull { it.id == player?.currentMediaItem?.mediaId }
         updateSourceAfterRemovingDownloads(player, episode) { repository.clearQueueAndDownloads(queueId) }
+    }
+
+    suspend fun clearFeedAndDownloads(player: Player?, feedUrl: String): Unit {
+        fun belongsToFeed(item: MediaItem?): Boolean =
+            item?.mediaMetadata?.extras?.getString("feed_url") == feedUrl
+
+        if (belongsToFeed(player?.currentMediaItem)) stopPlaybackAndSavePosition(player)
+        repository.clearFeedAndDownloads(feedUrl)
+        if (player == null) return
+        if (belongsToFeed(player.currentMediaItem)) {
+            stopPlaybackAndSavePosition(player)
+        } else {
+            for (index in player.mediaItemCount - 1 downTo 0) {
+                if (belongsToFeed(player.getMediaItemAt(index))) player.removeMediaItem(index)
+            }
+        }
+    }
+
+    private suspend fun stopPlaybackAndSavePosition(player: Player?): Unit {
+        val id = player?.currentMediaItem?.mediaId
+        val progress = player?.let {
+            ListeningProgress(it.currentPosition.coerceAtLeast(0), it.duration.coerceAtLeast(0))
+        }
+        repository.preferences.edit { remove("active_queue"); remove("current") }
+        player?.pause()
+        player?.stop()
+        player?.clearMediaItems()
+        if (id != null && progress != null) repository.updateProgress(id, progress)
     }
 
     private suspend fun updateSourceAfterRemovingDownloads(
@@ -186,18 +255,33 @@ internal class PlaybackCommands(
         }
         val target = episodeId ?: current.takeIf { sameQueue }
         val index = episodes.indexOfFirst { it.id == target }.coerceAtLeast(0)
-        repository.preferences.edit { putString("active_queue", queueId) }
-        player.setMediaItems(
-            episodes.map { it.mediaItem(repository) },
-            index,
-            if (episodes[index].id == current) player.currentPosition.coerceAtLeast(0)
-            else
-                playbackStart(
-                    episodes[index],
-                    library.progress[episodes[index].id] ?: ListeningProgress(),
-                    repository.settings.options(episodes[index].feedUrl),
-                ),
-        )
+        val episode = episodes[index]
+        val position =
+            if (episode.id == current) player.currentPosition.coerceAtLeast(0)
+            else playbackStart(
+                episode,
+                library.progress[episode.id] ?: ListeningProgress(),
+                repository.settings.options(episode.feedUrl),
+            )
+        startQueue(player, queueId, episodes, index, position)
+    }
+
+    private fun startQueue(
+        player: Player,
+        queueId: String,
+        episodes: List<Episode>,
+        index: Int,
+        positionMs: Long,
+        applyStartSkip: Boolean = true,
+    ): Unit {
+        repository.preferences.edit {
+            putString("active_queue", queueId)
+            putString("current", episodes[index].id)
+        }
+        val items = episodes.mapIndexed { itemIndex, episode ->
+            episode.mediaItem(repository, applyStartSkip = itemIndex != index || applyStartSkip)
+        }
+        player.setMediaItems(items, index, positionMs)
         player.prepare()
         player.play()
     }

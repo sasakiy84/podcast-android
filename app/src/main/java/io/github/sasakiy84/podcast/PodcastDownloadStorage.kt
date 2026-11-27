@@ -2,6 +2,7 @@ package io.github.sasakiy84.podcast
 
 import android.app.DownloadManager
 import android.content.Context
+import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Environment
 import androidx.core.net.toUri
@@ -15,9 +16,9 @@ internal class PodcastDownloadStorage(
 ) {
     private val manager = context.getSystemService(DownloadManager::class.java)
 
-    fun enqueue(episode: Episode): Unit {
-        val request =
-            DownloadManager.Request(podcastUrl(episode.audioUrl).toASCIIString().toUri())
+    fun enqueue(episode: Episode, unmetered: Boolean = false): Unit {
+        val error = try {
+            val request = DownloadManager.Request(podcastUrl(episode.audioUrl).toASCIIString().toUri())
                 .setTitle(episode.title)
                 .setDescription(context.getString(R.string.app_name))
                 .setNotificationVisibility(
@@ -28,29 +29,32 @@ internal class PodcastDownloadStorage(
                     Environment.DIRECTORY_PODCASTS,
                     "${episode.id}.audio",
                 )
-                .setAllowedOverMetered(
-                    !PlaybackPreferences(
-                            context.getSharedPreferences("playback", Context.MODE_PRIVATE)
-                        )
-                        .wifiOnly
-                )
-                .setAllowedNetworkTypes(
-                    if (
-                        PlaybackPreferences(
-                                context.getSharedPreferences("playback", Context.MODE_PRIVATE)
-                            )
-                            .wifiOnly
-                    )
-                        DownloadManager.Request.NETWORK_WIFI
-                    else
-                        DownloadManager.Request.NETWORK_WIFI or
-                            DownloadManager.Request.NETWORK_MOBILE
-                )
+                .setAllowedOverMetered(!unmetered)
                 .setAllowedOverRoaming(false)
-        loudnessProfiles.remove(episode.id)
-        store.downloadId(episode.id)?.let { manager.remove(it) }
-        downloadFile(episode.id)?.delete()
-        store.saveDownload(episode.id, manager.enqueue(request))
+            remove(episode.id)
+            val managerId = manager.enqueue(request)
+            if (managerId >= 0) {
+                try {
+                    store.saveDownload(episode.id, managerId, unmetered)
+                } catch (error: android.database.SQLException) {
+                    manager.remove(managerId)
+                    throw error
+                }
+                return
+            }
+            "ダウンロードを開始できませんでした"
+        } catch (_: PodcastException) {
+            "音声 URL を利用できません"
+        } catch (_: IllegalArgumentException) {
+            "音声 URL を利用できません"
+        } catch (_: IllegalStateException) {
+            "保存先を利用できません"
+        } catch (_: SecurityException) {
+            "保存先へのアクセスが拒否されました"
+        }
+        if (store.downloadId(episode.id) == null) {
+            store.saveDownload(episode.id, NO_DOWNLOAD_REQUEST, error = error)
+        }
     }
 
     fun remove(id: String): Unit {
@@ -79,24 +83,23 @@ internal class PodcastDownloadStorage(
         context.getExternalFilesDir(Environment.DIRECTORY_PODCASTS)?.let { File(it, "$id.audio") }
 
     fun downloads(): Map<String, EpisodeDownload> {
-        val ids = store.downloadIds()
-        if (ids.isEmpty()) return emptyMap()
-        val reverse = ids.entries.associate { it.value to it.key }
-        val settings =
-            PlaybackPreferences(context.getSharedPreferences("playback", Context.MODE_PRIVATE))
-        val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
-        val onWifi =
-            connectivity
-                .getNetworkCapabilities(connectivity.activeNetwork)
-                ?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
+        val records = store.downloadRecords()
+        if (records.isEmpty()) return emptyMap()
+        val reverse = records.entries.filter { it.value.managerId >= 0 }
+            .associate { it.value.managerId to it.key }
+        val onMeteredNetwork by lazy {
+            context.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered
+        }
         // Our database insertion order survives restarts and does not depend on
         // publication dates, progress timestamps, or opaque DownloadManager IDs.
         val result = mutableMapOf<String, EpisodeDownload>()
-        ids.entries.forEachIndexed { order, (id, managerId) ->
+        records.entries.forEachIndexed { order, (id, record) ->
             result[id] =
-                EpisodeDownload(managerId, DownloadStatus.Failed, downloadOrder = order.toLong())
+                EpisodeDownload(record.managerId, DownloadStatus.Failed, reason = record.error,
+                    downloadOrder = order.toLong())
         }
-        manager.query(DownloadManager.Query().setFilterById(*ids.values.toLongArray())).use { cursor
+        if (reverse.isEmpty()) return result
+        manager.query(DownloadManager.Query().setFilterById(*reverse.keys.toLongArray())).use { cursor
             ->
             while (cursor.moveToNext()) {
                 val managerId =
@@ -124,6 +127,9 @@ internal class PodcastDownloadStorage(
                     }
                 val code =
                     cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                val waitingForWifi = state == DownloadStatus.Waiting &&
+                    (code == DownloadManager.PAUSED_QUEUED_FOR_WIFI ||
+                        (records.getValue(id).unmetered && onMeteredNetwork))
                 val reason =
                     when {
                         state == DownloadStatus.Complete || state == DownloadStatus.Running -> ""
@@ -134,16 +140,15 @@ internal class PodcastDownloadStorage(
                                 DownloadManager.ERROR_INSUFFICIENT_SPACE -> "空き容量が不足しています"
                                 DownloadManager.ERROR_DEVICE_NOT_FOUND -> "保存先を利用できません"
                                 DownloadManager.ERROR_FILE_ERROR -> "ファイルを保存できませんでした"
+                                in 400..599 -> "配信元がエラーを返しました（HTTP $code）"
                                 else -> "ダウンロードに失敗しました"
                             }
-                        code == DownloadManager.PAUSED_QUEUED_FOR_WIFI ||
-                            (settings.wifiOnly && !onWifi) -> "Wi-Fi 接続待ち"
+                        waitingForWifi -> "Wi-Fi 接続待ち"
                         code == DownloadManager.PAUSED_WAITING_FOR_NETWORK -> "ネットワーク接続待ち"
                         code == DownloadManager.PAUSED_WAITING_TO_RETRY -> "再試行待ち"
                         else -> "開始待ち"
                     }
-                val fileSize =
-                    downloadFile(id)?.length()?.takeIf { state == DownloadStatus.Complete }
+                val fileSize = if (state == DownloadStatus.Complete) downloadFile(id)?.length() else null
                 result[id] =
                     EpisodeDownload(
                         managerId,
@@ -153,9 +158,12 @@ internal class PodcastDownloadStorage(
                         fileSize ?: total,
                         reason,
                         result.getValue(id).downloadOrder,
+                        canStartManually = waitingForWifi,
                     )
             }
         }
         return result
     }
 }
+
+internal const val NO_DOWNLOAD_REQUEST = -1L

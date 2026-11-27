@@ -12,10 +12,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import kotlinx.coroutines.delay
 
 @Composable
 internal fun ManagementPage(
@@ -29,11 +31,11 @@ internal fun ManagementPage(
         android.text.format.Formatter.formatShortFileSize(context, value.coerceAtLeast(0))
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var cleanup by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) {
-        while (true) {
+    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val downloadStates = state.library.downloads.mapValues { it.value.status }
+    LaunchedEffect(lifecycleState.isAtLeast(Lifecycle.State.STARTED), tab, downloadStates) {
+        if (lifecycleState.isAtLeast(Lifecycle.State.STARTED) && tab == 0)
             action(PodcastAction.LoadManagement)
-            delay(5000)
-        }
     }
     Scaffold(
         topBar = {
@@ -109,6 +111,7 @@ internal fun ManagementPage(
                             Text("保存した音声はありません", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     items(state.management?.downloads.orEmpty(), key = { it.episode.id }) { item ->
+                        val info = state.library.downloads[item.episode.id] ?: item.download
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(
@@ -125,7 +128,6 @@ internal fun ManagementPage(
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    val info = item.download
                                     val label =
                                         when (info.status) {
                                             DownloadStatus.Complete ->
@@ -148,19 +150,16 @@ internal fun ManagementPage(
                                             else MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
-                                if (
-                                    item.download.status == DownloadStatus.Failed ||
-                                        (item.download.status == DownloadStatus.Waiting &&
-                                            item.download.reason != "Wi-Fi 接続待ち")
-                                )
+                                if (info.status == DownloadStatus.Failed || info.canStartManually)
                                     IconButton(
                                         onClick = {
                                             action(PodcastAction.RetryDownload(item.episode))
                                         }
                                     ) {
                                         Icon(
-                                            AppIcons.Refresh,
-                                            "ダウンロードを再試行: ${item.episode.title}",
+                                            if (info.canStartManually) AppIcons.Download else AppIcons.Refresh,
+                                            if (info.canStartManually) "今すぐダウンロード: ${item.episode.title}"
+                                            else "ダウンロードを再試行: ${item.episode.title}",
                                         )
                                     }
                                 IconButton(

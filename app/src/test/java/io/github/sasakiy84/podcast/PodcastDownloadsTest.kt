@@ -1,7 +1,10 @@
 package io.github.sasakiy84.podcast
 
 import android.app.DownloadManager
+import android.app.job.JobScheduler
+import android.content.ContextWrapper
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Environment
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -14,6 +17,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
 import org.robolectric.shadow.api.Shadow
 import org.robolectric.shadows.ShadowDownloadManager
 
@@ -162,13 +167,114 @@ class PodcastDownloadsTest {
             assertEquals(firstId, repository.store.downloadId(new.id))
             assertEquals(DownloadStatus.Failed, repository.library.value.downloads[new.id]?.status)
 
-            repository.retryDownload(new)
+            repository.download(new)
             assertNotEquals(firstId, repository.store.downloadId(new.id))
         }
 
     @Test
+    fun perPodcastLimitTakesTheTwoNewestInTheBatchWithoutLimitingQueueRules(): Unit = runBlocking {
+        val older = episode.copy(id = "older", published = 1_000)
+        val middle = episode.copy(id = "middle", published = 2_000)
+        val newest = episode.copy(id = "newest", published = 3_000)
+        val queued = episode.copy(id = "queued", title = "ニュース", published = 500)
+        repository.setAutoDownload(podcast.feedUrl, true)
+        repository.saveRule(QueueRule("default", podcast.feedUrl, includeWords = "ニュース", autoDownload = true), false)
+        fetchedFeed = PodcastFeed(podcast, listOf(older, queued, middle, newest))
+
+        repository.refresh()
+
+        assertEquals(setOf(newest.id, middle.id, queued.id), repository.store.downloadIds().keys)
+        assertEquals(older, repository.store.episode(older.id))
+    }
+
+    @Test
+    fun aChargingReservationAppearsInStorageAndManualStartClearsTheJob(): Unit = runBlocking {
+        repository.settings.setAutoDownloadChargingOnly(true)
+        shadowOf(context.getSystemService(BatteryManager::class.java)).setIsCharging(false)
+        repository.saveRule(QueueRule("default", podcast.feedUrl, autoDownload = true), true)
+
+        val jobs = context.getSystemService(JobScheduler::class.java)
+        val job = jobs.allPendingJobs.single { it.service.className == AutomaticDownloadJob::class.java.name }
+        assertTrue(job.isRequireCharging)
+        assertTrue(job.isRequireStorageNotLow)
+        assertNull(repository.store.downloadId(episode.id))
+        val waiting = repository.management().downloads.single().download
+        assertEquals("充電待ち", waiting.reason)
+        assertTrue(waiting.canStartManually)
+
+        repository.download(episode)
+
+        val id = requireNotNull(repository.store.downloadId(episode.id))
+        val request: ShadowDownloadManager.ShadowRequest = Shadow.extract(shadowOf(manager).getRequest(id))
+        assertTrue(request.allowedOverMetered)
+        assertTrue(repository.store.automaticDownloadIds().isEmpty())
+        assertNull(jobs.getPendingJob(job.id))
+    }
+
+    @Test
+    @Config(shadows = [RejectedDownloadManager::class])
+    fun rejectedRegistrationShowsAReasonAndCanBeRetriedManually(): Unit = runBlocking {
+        val new = episode.copy(id = "rejected")
+        repository.setAutoDownload(podcast.feedUrl, true)
+        fetchedFeed = PodcastFeed(podcast, listOf(episode, new))
+        val shadow: RejectedDownloadManager = Shadow.extract(manager)
+        shadow.reject = true
+
+        repository.refresh()
+
+        assertNull(repository.store.downloadId(new.id))
+        assertTrue(repository.store.automaticDownloadIds().isEmpty())
+        val failure = repository.management().downloads.single().download
+        assertEquals(DownloadStatus.Failed, failure.status)
+        assertEquals("ダウンロードを開始できませんでした", failure.reason)
+
+        shadow.reject = false
+        repository.refresh()
+        assertNull(repository.store.downloadId(new.id))
+        repository.download(new)
+        assertNotNull(repository.store.downloadId(new.id))
+    }
+
+    @Test
+    fun anUnavailableDestinationDoesNotStopOtherAutomaticDownloads(): Unit = runBlocking {
+        var failNext = false
+        val wrapped = object : ContextWrapper(context) {
+            override fun getExternalFilesDir(type: String?): File? {
+                if (failNext) {
+                    failNext = false
+                    return null
+                }
+                return super.getExternalFilesDir(type)
+            }
+        }
+        val first = episode.copy(id = "first")
+        val second = episode.copy(id = "second")
+        val repo = PodcastRepository(wrapped, fetchFeed = { PodcastFeed(podcast, listOf(first, second)) })
+        try {
+            repo.setAutoDownload(podcast.feedUrl, true)
+            failNext = true
+            repo.refresh()
+
+            assertEquals("保存先を利用できません", repo.library.value.downloads[first.id]?.reason)
+            assertNotNull(repo.store.downloadId(second.id))
+        } finally {
+            repo.store.close()
+        }
+    }
+
+    @Implements(DownloadManager::class)
+    class RejectedDownloadManager : ShadowDownloadManager() {
+        var reject = false
+
+        @Implementation
+        override fun enqueue(request: DownloadManager.Request): Long =
+            if (reject) -1L else super.enqueue(request)
+    }
+
+    @Test
     fun automaticDownloadsUseOneSharedRequestAndManualRemovalPreventsRedownloading(): Unit =
         runBlocking {
+            repository.setWifiOnly(false)
             repository.store.saveQueue("news", "ニュース")
             repository.store.saveQueue("tech", "技術")
             repository.saveRule(QueueRule("news", podcast.feedUrl, autoDownload = true), true)
@@ -258,6 +364,60 @@ class PodcastDownloadsTest {
         } finally {
             player.release()
             otherFile.delete()
+        }
+    }
+
+    @Test
+    fun feedCleanupRemovesAllMembershipsAndDownloadsWithoutUnsubscribing(): Unit = runBlocking {
+        val secondPodcast = Podcast("https://example.org/other", "別の番組")
+        val other = episode.copy(id = "other-feed", feedUrl = secondPodcast.feedUrl)
+        val downloadOnly = episode.copy(id = "download-only", published = 1)
+        val pending = episode.copy(id = "pending", published = 3, title = "待機中の回")
+        val rule = QueueRule("news", podcast.feedUrl, includeWords = episode.title)
+        repository.store.saveFeed(PodcastFeed(podcast, listOf(episode.copy(published = 2), downloadOnly)))
+        repository.store.saveFeed(PodcastFeed(secondPodcast, listOf(other)))
+        repository.store.saveQueue("news", "ニュース")
+        repository.store.saveQueue("mixed", "番組いろいろ")
+        repository.store.saveRule(rule, false)
+        repository.store.addToQueue("news", episode.id)
+        repository.store.addToQueue("mixed", episode.id)
+        repository.store.addToQueue("mixed", other.id)
+        repository.store.setAutoDownload(podcast.feedUrl, true)
+        repository.store.saveFeed(PodcastFeed(podcast, listOf(pending)))
+        assertEquals(listOf(pending.id), repository.store.automaticDownloadIds())
+        assertEquals(listOf(pending.id), repository.store.podcastEpisodes(podcast.feedUrl, 1).episodes.map { it.id })
+        repository.store.setFavorite(episode.id, true)
+        repository.updateProgress(episode.id, ListeningProgress(12_000, 60_000), listened = true)
+        val audioFiles = listOf(episode, downloadOnly, other).associateWith { File(file.parentFile, "${it.id}.audio") }
+        try {
+            for ((item, audio) in audioFiles) {
+                repository.download(item)
+                val requestId = requireNotNull(repository.store.downloadId(item.id))
+                val request: ShadowDownloadManager.ShadowRequest = Shadow.extract(shadowOf(manager).getRequest(requestId))
+                request.setStatus(DownloadManager.STATUS_SUCCESSFUL)
+                audio.writeBytes(byteArrayOf(1, 2, 3))
+            }
+
+            repository.clearFeedAndDownloads(podcast.feedUrl)
+            repository.processAutomaticDownloads()
+
+            assertTrue(repository.store.queueEpisodeIds("news").isEmpty())
+            assertEquals(listOf(other.id), repository.store.queueEpisodeIds("mixed"))
+            assertEquals(setOf(other.id), repository.store.downloadIds().keys)
+            assertEquals(1, shadowOf(manager).requestCount)
+            assertTrue(repository.store.automaticDownloadIds().isEmpty())
+            assertFalse(audioFiles.getValue(episode).exists())
+            assertFalse(audioFiles.getValue(downloadOnly).exists())
+            assertTrue(audioFiles.getValue(other).exists())
+            assertEquals(listOf(rule), repository.store.rules())
+            assertTrue(podcast.feedUrl in repository.library.value.autoDownloadFeeds)
+            assertEquals(podcast, repository.store.podcast(podcast.feedUrl))
+            assertEquals(3, repository.store.podcastEpisodes(podcast.feedUrl).total)
+            assertEquals(12_000L, repository.store.progress(episode.id).positionMs)
+            assertTrue(episode.id in repository.library.value.historyIds)
+            assertTrue(episode.id in repository.library.value.favorites)
+        } finally {
+            audioFiles.values.forEach { it.delete() }
         }
     }
 
@@ -442,36 +602,28 @@ class PodcastDownloadsTest {
     }
 
     @Test
-    fun wifiRestrictionRecreatesOutstandingRequestsAndPreservesCompletedFiles(): Unit =
+    fun wifiRestrictionAppliesToAutomaticDownloadsAndManualStartCanOverrideIt(): Unit =
         runBlocking {
-            repository.download(episode)
-            val old = requireNotNull(repository.store.downloadId(episode.id))
-            val pending: ShadowDownloadManager.ShadowRequest =
-                Shadow.extract(shadowOf(manager).getRequest(old))
-            pending.setStatus(DownloadManager.STATUS_PENDING)
             repository.setWifiOnly(true)
-            val restricted = requireNotNull(repository.store.downloadId(episode.id))
-            assertNotEquals(old, restricted)
-            val request = shadowOf(manager).getRequest(restricted)
-            assertEquals(
-                DownloadManager.Request.NETWORK_WIFI,
-                org.robolectric.util.ReflectionHelpers.getField<Int>(
-                    request,
-                    "mAllowedNetworkTypes",
-                ),
-            )
-            assertFalse(
-                org.robolectric.util.ReflectionHelpers.getField<Boolean>(request, "mMeteredAllowed")
-            )
+            repository.saveRule(QueueRule("default", podcast.feedUrl, autoDownload = true), true)
+            val old = requireNotNull(repository.store.downloadId(episode.id))
+            val request = shadowOf(manager).getRequest(old)
             val shadow: ShadowDownloadManager.ShadowRequest = Shadow.extract(request)
+            assertFalse(shadow.allowedOverMetered)
             shadow.setStatus(DownloadManager.STATUS_PAUSED)
             assertEquals("Wi-Fi 接続待ち", repository.management().downloads.single().download.reason)
-            shadow.setStatus(DownloadManager.STATUS_SUCCESSFUL)
+            repository.download(episode)
+            val manual = requireNotNull(repository.store.downloadId(episode.id))
+            assertNotEquals(old, manual)
+            val manualRequest = shadowOf(manager).getRequest(manual)
+            val manualShadow: ShadowDownloadManager.ShadowRequest = Shadow.extract(manualRequest)
+            assertTrue(manualShadow.allowedOverMetered)
+            manualShadow.setStatus(DownloadManager.STATUS_SUCCESSFUL)
             file.parentFile?.mkdirs()
             file.writeBytes(byteArrayOf(1))
             repository.load()
             repository.setWifiOnly(false)
-            assertEquals(restricted, repository.store.downloadId(episode.id))
+            assertEquals(manual, repository.store.downloadId(episode.id))
             assertTrue(file.exists())
             val management = repository.management()
             assertEquals(1L, management.storage.audioBytes)

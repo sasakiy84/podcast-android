@@ -140,11 +140,13 @@ class PodcastRepository(
                 } catch (_: SecurityException) {
                     throw PodcastException("OPML ファイルにアクセスできませんでした。")
                 }
-            mutex.withLock {
+            val result = mutex.withLock {
                 val added = store.importSubscriptions(subscriptions.podcasts).size
                 publish()
                 OpmlImportResult(added, subscriptions.skipped + subscriptions.podcasts.size - added)
             }
+            if (result.added > 0) configureBackgroundSync()
+            result
         }
 
     suspend fun exportOpml(uri: Uri): Unit =
@@ -168,7 +170,7 @@ class PodcastRepository(
             val feed = requireNotNull(result.feed)
             mutex.withLock {
                 store.writableDatabase.transaction {
-                    store.saveFeed(feed)
+                    store.saveFeed(feed, settings.autoDownloadLimit)
                     store.recordFeedUpdate(
                         feed.podcast.feedUrl,
                         result.validators,
@@ -177,18 +179,35 @@ class PodcastRepository(
                 }
                 publish()
             }
+            configureBackgroundSync()
             processAutomaticDownloads()
         }
 
     suspend fun refresh(
         feedUrl: String? = null,
         onProgress: (Int, Int) -> Unit = { _, _ -> },
+    ): List<String> = refreshFeeds(feedUrl, 0, onProgress)
+
+    internal suspend fun refreshIfDue(minimumAgeMs: Long): Unit {
+        refreshFeeds(null, minimumAgeMs) { _, _ -> }
+    }
+
+    private suspend fun refreshFeeds(
+        feedUrl: String?,
+        minimumAgeMs: Long,
+        onProgress: (Int, Int) -> Unit,
     ): List<String> =
         withContext(Dispatchers.IO) {
             val podcasts =
                 mutex.withLock {
-                    store.podcasts().filter { feedUrl == null || it.feedUrl == feedUrl }
+                    val checks = if (minimumAgeMs > 0) store.feedUpdates() else emptyMap()
+                    val now = System.currentTimeMillis()
+                    store.podcasts().filter {
+                        (feedUrl == null || it.feedUrl == feedUrl) &&
+                            isFeedDue(checks[it.feedUrl]?.checkedMs ?: 0L, now, minimumAgeMs)
+                    }
                 }
+            if (podcasts.isEmpty() && minimumAgeMs > 0) return@withContext emptyList()
             val completed = java.util.concurrent.atomic.AtomicInteger()
             val permits = refreshPermits
             var lastPublish = 0L
@@ -204,15 +223,23 @@ class PodcastRepository(
                                             try {
                                                 val validators =
                                                     mutex.withLock {
-                                                        store.feedValidators(podcast.feedUrl)
-                                                    }
+                                                        if (minimumAgeMs > 0 && !isFeedDue(
+                                                                store.lastFeedCheck(podcast.feedUrl),
+                                                                System.currentTimeMillis(),
+                                                                minimumAgeMs,
+                                                            )
+                                                        ) null else store.feedValidators(podcast.feedUrl)
+                                                    } ?: return@withPermit null
                                                 val result = fetch(podcast.feedUrl, validators)
+                                                coroutineContext.ensureActive()
                                                 val feed = result.feed
                                                 mutex.withLock {
                                                     if (store.podcast(podcast.feedUrl) != null) {
                                                         val newEpisodes =
                                                             store.writableDatabase.transaction {
-                                                                val saved = feed?.let(store::saveFeed).orEmpty()
+                                                                val saved = feed?.let {
+                                                                    store.saveFeed(it, settings.autoDownloadLimit)
+                                                                }.orEmpty()
                                                                 store.recordFeedUpdate(
                                                                     podcast.feedUrl,
                                                                     result.validators,
@@ -265,6 +292,9 @@ class PodcastRepository(
             processAutomaticDownloads()
             failed
         }
+
+    private fun isFeedDue(checkedMs: Long, now: Long, minimumAgeMs: Long): Boolean =
+        minimumAgeMs == 0L || checkedMs == 0L || checkedMs <= now - minimumAgeMs || checkedMs > now
 
     private fun fetch(url: String, validators: FeedValidators): FeedFetchResult =
         fetchFeed?.let { FeedFetchResult(it(url), FeedValidators()) }
@@ -332,7 +362,7 @@ class PodcastRepository(
     suspend fun management(): LibraryManagement =
         withContext(Dispatchers.IO) {
             mutex.withLock {
-                publish()
+                publishDownloads()
                 val library = mutableLibrary.value
                 fun size(file: java.io.File?): Long =
                     file
@@ -386,6 +416,11 @@ class PodcastRepository(
             context.imageLoader.diskCache?.clear()
         }
 
+    suspend fun setWifiOnly(enabled: Boolean): Unit {
+        settings.setWifiOnly(enabled)
+        processAutomaticDownloads()
+    }
+
     suspend fun quickQueue(id: String): Unit =
         withContext(Dispatchers.IO) {
             mutex.withLock {
@@ -396,25 +431,6 @@ class PodcastRepository(
                 if (store.queues().none { it.id == queueId }) store.saveQueue(queueId, "あとで聴く")
                 require(!store.progress(id).completed) { "未再生に戻してから追加してください。" }
                 store.addToQueue(queueId, id)
-                publish()
-            }
-        }
-
-    suspend fun setWifiOnly(enabled: Boolean): Unit =
-        withContext(Dispatchers.IO) {
-            mutex.withLock {
-                if (settings.wifiOnly == enabled) return@withLock
-                settings.setWifiOnly(enabled)
-                // Recreate outstanding requests so a newly enabled restriction takes effect
-                // immediately.
-                val pending =
-                    downloads()
-                        .filterValues {
-                            it.status == DownloadStatus.Waiting || it.status == DownloadStatus.Running
-                        }
-                        .keys
-                        .mapNotNull(store::episode)
-                pending.forEach(downloadStorage::enqueue)
                 publish()
             }
         }
@@ -472,6 +488,7 @@ class PodcastRepository(
                     downloadStorage.remove(episode.id)
                 }
                 store.unsubscribe(podcast.feedUrl)
+                cancelEmptyAutomaticDownloadJob()
                 publish()
             }
             configureBackgroundSync()
@@ -481,27 +498,20 @@ class PodcastRepository(
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 val existing = downloads()[episode.id]
-                if (existing != null && existing.status != DownloadStatus.Failed) return@withLock
-                downloadStorage.enqueue(episode)
-                publish()
-            }
-        }
-
-    suspend fun retryDownload(episode: Episode): Unit =
-        withContext(Dispatchers.IO) {
-            mutex.withLock {
-                if (downloads()[episode.id]?.status == DownloadStatus.Complete) return@withLock
-                downloadStorage.enqueue(episode)
-                publish()
+                if (existing != null && existing.status != DownloadStatus.Failed &&
+                    !existing.canStartManually) return@withLock
+                downloadStorage.enqueue(store.episode(episode.id) ?: episode)
+                cancelAutomaticDownload(episode.id)
+                publishDownloads()
             }
         }
 
     suspend fun removeDownload(episode: Episode): Unit =
         withContext(Dispatchers.IO) {
             mutex.withLock {
-                store.cancelAutomaticDownload(episode.id)
+                cancelAutomaticDownload(episode.id)
                 downloadStorage.remove(episode.id)
-                publish()
+                publishDownloads()
             }
         }
 
@@ -520,8 +530,10 @@ class PodcastRepository(
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 store.saveProgress(id, progress, resetCompletion, listened)
-                if (finished && progress.completed && !store.isFavorite(id))
+                if (finished && progress.completed && !store.isFavorite(id)) {
+                    cancelAutomaticDownload(id)
                     downloadStorage.remove(id)
+                }
                 publish()
             }
         }
@@ -552,15 +564,33 @@ class PodcastRepository(
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 val episodes = store.queueEpisodeIds(id).toSet()
-                for (episodeId in episodes) {
-                    store.cancelAutomaticDownload(episodeId)
-                    downloadStorage.remove(episodeId)
-                }
+                removeDownloads(episodes)
                 store.clearQueue(id)
                 publish()
                 episodes
             }
         }
+
+    internal suspend fun clearFeedAndDownloads(feedUrl: String): Unit =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                val episodes = store.feedCleanupEpisodeIds(feedUrl)
+                try {
+                    removeDownloads(episodes)
+                    store.clearFeedQueueEntries(feedUrl)
+                } finally {
+                    publish()
+                }
+            }
+        }
+
+    private fun removeDownloads(episodeIds: Iterable<String>): Unit {
+        for (id in episodeIds) {
+            store.cancelAutomaticDownload(id)
+            downloadStorage.remove(id)
+        }
+        cancelEmptyAutomaticDownloadJob()
+    }
 
     suspend fun setQueueMembership(queueId: String, episodeId: String, included: Boolean): Unit =
         withContext(Dispatchers.IO) {
@@ -602,6 +632,7 @@ class PodcastRepository(
                 publish()
             }
             configureBackgroundSync()
+            processAutomaticDownloads()
         }
 
     suspend fun setAutoDownload(feedUrl: String, enabled: Boolean): Unit =
@@ -611,6 +642,7 @@ class PodcastRepository(
                 publish()
             }
             configureBackgroundSync()
+            processAutomaticDownloads()
         }
 
     suspend fun configureBackgroundSync(): Unit =
@@ -622,58 +654,74 @@ class PodcastRepository(
             )
         }
 
-    suspend fun processAutomaticDownloads(): Unit =
+    internal suspend fun processAutomaticDownloads(): Boolean =
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 val pending = store.automaticDownloadIds()
-                if (pending.isEmpty()) return@withLock
-                val library = store.library()
-                val queueEpisodes = library.queues.associate { it.id to it.episodeIds.toHashSet() }
+                if (pending.isEmpty()) return@withLock false
+                val queueEpisodes = store.queues().associate { it.id to it.episodeIds.toHashSet() }
+                val rules = store.rules().filter { it.enabled && it.autoDownload }
+                val autoDownloadFeeds = store.autoDownloadFeeds()
                 val submitted = store.downloadIds()
-                var enqueued = false
+                val waitingReason by lazy { AutomaticDownloadJob.waitingReason(context, settings) }
+                var blocked = false
                 try {
                     for (id in pending) {
                         coroutineContext.ensureActive()
                         val episode = if (id in submitted) null else store.episode(id)
                         if (
                             episode != null && !store.progress(id).completed &&
-                                (episode.feedUrl in library.autoDownloadFeeds ||
-                                    library.queueRules.any { rule ->
-                                        rule.autoDownload &&
-                                            queueEpisodes[rule.queueId]?.contains(id) == true &&
+                                (episode.feedUrl in autoDownloadFeeds ||
+                                    rules.any { rule ->
+                                        queueEpisodes[rule.queueId]?.contains(id) == true &&
                                             rule.matches(episode)
                                     })
                         ) {
-                            try {
-                                downloadStorage.enqueue(episode)
-                                enqueued = true
-                            } catch (_: IllegalArgumentException) {
-                                continue
-                            } catch (_: SecurityException) {
+                            if (waitingReason != null) {
+                                blocked = true
                                 continue
                             }
+                            downloadStorage.enqueue(episode, unmetered = settings.wifiOnly)
                         }
-                        // The platform owns the request after handoff, including any network retries.
+                        // A started or failed request is now represented in downloads.
                         store.cancelAutomaticDownload(id)
                     }
                 } finally {
-                    if (enqueued) publish()
+                    publishDownloads()
                 }
+                AutomaticDownloadJob.schedule(context, settings, blocked)
+                blocked
             }
-            configureBackgroundSync()
         }
+
+    private fun cancelAutomaticDownload(id: String): Unit {
+        if (store.cancelAutomaticDownload(id)) cancelEmptyAutomaticDownloadJob()
+    }
+
+    private fun cancelEmptyAutomaticDownloadJob(): Unit {
+        if (store.automaticDownloadIds().isEmpty()) AutomaticDownloadJob.schedule(context, settings, false)
+    }
 
     fun audioUri(episode: Episode): Uri = downloadStorage.audioUri(episode, mutableLibrary.value)
 
     internal suspend fun refreshDownloadCompletion(managerId: Long): Unit =
         withContext(Dispatchers.IO) {
             mutex.withLock {
-                val library = mutableLibrary.value
-                if (library.downloads.values.any { it.managerId == managerId }) {
-                    mutableLibrary.value = library.copy(downloads = downloads())
+                if (managerId in store.downloadIds().values) {
+                    publishDownloads()
+                    if (mutableLibrary.value.downloads.values.any {
+                        it.managerId == managerId && it.status == DownloadStatus.Complete
+                    }) AudioAnalysisJob.schedule(context)
                 }
             }
         }
+
+    internal suspend fun refreshDownloadProgress(): Unit =
+        withContext(Dispatchers.IO) { mutex.withLock { publishDownloads() } }
+
+    private fun publishDownloads(): Unit {
+        mutableLibrary.value = mutableLibrary.value.copy(downloads = downloads())
+    }
 
     private fun publish(): Unit {
         mutableLibrary.value =
@@ -692,5 +740,14 @@ class PodcastRepository(
             AudioAnalysisJob.schedule(context)
     }
 
-    private fun downloads(): Map<String, EpisodeDownload> = downloadStorage.downloads()
+    private fun downloads(): Map<String, EpisodeDownload> {
+        val registered = downloadStorage.downloads()
+        val pending = store.automaticDownloadIds().filterNot { it in registered }
+        if (pending.isEmpty()) return registered
+        val reason = AutomaticDownloadJob.waitingReason(context, settings) ?: "開始待ち"
+        return registered + pending.mapIndexed { index, id ->
+            id to EpisodeDownload(NO_DOWNLOAD_REQUEST, DownloadStatus.Waiting, reason = reason,
+                downloadOrder = registered.size.toLong() + index, canStartManually = true)
+        }
+    }
 }

@@ -1,15 +1,18 @@
 package io.github.sasakiy84.podcast
 
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaSession
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -56,6 +59,107 @@ class PlaybackCommandsTest {
         assertEquals(ListeningProgress(30_000, first.durationMs), repository.store.progress(first.id))
         assertSame(library, repository.library.value)
         assertTrue(repository.store.library().historyIds.isEmpty())
+    }
+
+    @Test
+    fun downloadedEpisodeStartsAtItsExistingQueuePosition(): Unit = runBlocking {
+        val third = first.copy(id = "three", title = "第三回")
+        repository.store.saveFeed(PodcastFeed(show, listOf(third)))
+        repository.saveQueue("existing", "登録済み", second.id)
+        repository.setQueueMembership("existing", first.id, true)
+        repository.setQueueMembership("existing", third.id, true)
+        repository.saveQueue("feed", "番組")
+        repository.saveRule(QueueRule("feed", show.feedUrl), false)
+        repository.updateProgress(first.id, ListeningProgress(48_000, first.durationMs))
+
+        commands.playDownloaded(player, first)
+
+        assertEquals("existing", repository.preferences.getString("active_queue", null))
+        assertEquals(first.id, player.currentMediaItem?.mediaId)
+        assertEquals(1, player.currentMediaItemIndex)
+        assertEquals(48_000L, player.currentPosition)
+        assertEquals(third.id, player.getMediaItemAt(player.nextMediaItemIndex).mediaId)
+        assertEquals(listOf(second.id, first.id, third.id), repository.store.queueEpisodeIds("existing"))
+    }
+
+    @Test
+    fun unqueuedDownloadedEpisodePlaysBeforeTheFeedQueueAndIsRestoredOnReopen(): Unit = runBlocking {
+        repository.saveQueue("news", "番組", second.id)
+        repository.saveRule(QueueRule("news", show.feedUrl), false)
+        repository.updateProgress(first.id, ListeningProgress(31_000, first.durationMs))
+
+        commands.playDownloaded(player, first)
+        synchronizePlaybackQueue(player, repository, repository.library.value)
+
+        assertEquals("news", repository.preferences.getString("active_queue", null))
+        assertEquals(first.id, player.currentMediaItem?.mediaId)
+        assertEquals(second.id, player.getMediaItemAt(player.nextMediaItemIndex).mediaId)
+        assertEquals(listOf(second.id), repository.store.queueEpisodeIds("news"))
+
+        val service = Robolectric.buildService(PlaybackService::class.java).create()
+        try {
+            val restored = ReflectionHelpers.getField<MediaSession>(service.get(), "session").player
+            assertEquals(first.id, restored.currentMediaItem?.mediaId)
+            assertEquals(31_000L, restored.currentPosition)
+            assertEquals(second.id, restored.getMediaItemAt(restored.nextMediaItemIndex).mediaId)
+            assertFalse(restored.playWhenReady)
+        } finally {
+            service.destroy()
+        }
+    }
+
+    @Test
+    fun replayingACompletedDownloadUsesTheConfiguredDefaultQueue(): Unit = runBlocking {
+        repository.saveQueue("chosen", "既定", second.id)
+        repository.saveQueue("disabled", "無効")
+        repository.saveRule(QueueRule("disabled", show.feedUrl, enabled = false), false)
+        repository.settings.setDefaultQueue("chosen")
+        repository.settings.setOptions(show.feedUrl, PodcastOptions(skipStartSeconds = 45))
+        repository.updateProgress(first.id, ListeningProgress(first.durationMs, first.durationMs, true))
+
+        commands.playDownloaded(player, first)
+
+        assertEquals("chosen", repository.preferences.getString("active_queue", null))
+        assertEquals(first.id, player.currentMediaItem?.mediaId)
+        assertEquals(45_000L, player.currentPosition)
+        assertFalse(repository.store.progress(first.id).completed)
+        assertEquals(second.id, player.getMediaItemAt(player.nextMediaItemIndex).mediaId)
+    }
+
+    @Test
+    fun clearingTheCurrentFeedStopsPlaybackAndKeepsItsPosition(): Unit = runBlocking {
+        repository.saveQueue("news", "ニュース", first.id)
+        commands.playQueue(player, "news", first.id)
+        player.seekTo(12_000)
+
+        commands.clearFeedAndDownloads(player, show.feedUrl)
+
+        assertFalse(player.playWhenReady)
+        assertEquals(0, player.mediaItemCount)
+        assertFalse(repository.preferences.contains("active_queue"))
+        assertEquals(12_000L, repository.store.progress(first.id).positionMs)
+        assertTrue(repository.store.queueEpisodeIds("news").isEmpty())
+    }
+
+    @Test
+    fun clearingAnotherFeedKeepsTheCurrentPlaybackAndRemovesItsQueueItems(): Unit = runBlocking {
+        val otherShow = Podcast("https://example.org/other", "別の番組")
+        val other = first.copy(id = "other", feedUrl = otherShow.feedUrl)
+        repository.store.saveFeed(PodcastFeed(otherShow, listOf(other)))
+        repository.saveQueue("mixed", "いろいろ", first.id)
+        repository.setQueueMembership("mixed", other.id, true)
+        repository.setQueueMembership("mixed", second.id, true)
+        commands.playQueue(player, "mixed", other.id)
+        player.seekTo(23_000)
+
+        commands.clearFeedAndDownloads(player, show.feedUrl)
+
+        assertEquals(other.id, player.currentMediaItem?.mediaId)
+        assertEquals(23_000L, player.currentPosition)
+        assertTrue(player.playWhenReady)
+        assertEquals(1, player.mediaItemCount)
+        assertEquals("mixed", repository.preferences.getString("active_queue", null))
+        assertEquals(listOf(other.id), repository.store.queueEpisodeIds("mixed"))
     }
 
     @Test

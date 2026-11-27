@@ -9,7 +9,7 @@ import androidx.core.database.sqlite.transaction
 
 /** A private database keeps subscriptions, downloaded IDs and listening history on this device. */
 class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
-    SQLiteOpenHelper(context, databaseName, null, 5) {
+    SQLiteOpenHelper(context, databaseName, null, 6) {
     override fun onCreate(db: SQLiteDatabase): Unit {
         db.execSQL(
             "CREATE TABLE podcasts (feed TEXT PRIMARY KEY, title TEXT NOT NULL, author TEXT NOT NULL, artwork TEXT NOT NULL, description TEXT NOT NULL, website TEXT NOT NULL DEFAULT '')"
@@ -22,6 +22,7 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
             "CREATE TABLE progress (id TEXT PRIMARY KEY, position INTEGER NOT NULL, duration INTEGER NOT NULL, completed INTEGER NOT NULL)"
         )
         db.execSQL("CREATE TABLE downloads (id TEXT PRIMARY KEY, manager_id INTEGER NOT NULL)")
+        addDownloadDetails(db)
         createQueues(db)
         createLibraryIndexes(db)
         createEpisodeFeatures(db)
@@ -36,6 +37,12 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
         }
         if (oldVersion < 4) createEpisodeFeatures(db)
         if (oldVersion < 5) createOperations(db)
+        if (oldVersion < 6) addDownloadDetails(db)
+    }
+
+    private fun addDownloadDetails(db: SQLiteDatabase): Unit {
+        db.execSQL("ALTER TABLE downloads ADD COLUMN unmetered INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE downloads ADD COLUMN error TEXT NOT NULL DEFAULT ''")
     }
 
     private fun createOperations(db: SQLiteDatabase): Unit {
@@ -109,7 +116,7 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
     private fun episodeContent(title: String, published: Long, audioUrl: String): EpisodeContent =
         EpisodeContent(title, published, audioUrl.substringBefore('?').substringBefore('#'))
 
-    fun saveFeed(feed: PodcastFeed): List<Episode> {
+    fun saveFeed(feed: PodcastFeed, autoDownloadLimit: Int = Int.MAX_VALUE): List<Episode> {
         val db = writableDatabase
         return db.transaction {
             val p = feed.podcast
@@ -187,9 +194,13 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
                     newEpisodes += episode
                     val matching = feedRules.filter { it.matches(episode) }
                     matching.forEach { addToQueue(it.queueId, episode.id) }
-                    if (automaticDownload || matching.any { it.autoDownload })
+                    if (matching.any { it.autoDownload })
                         requestAutomaticDownload(episode.id)
                 }
+            }
+            if (automaticDownload) {
+                newEpisodes.sortedByDescending { it.published }.take(autoDownloadLimit)
+                    .forEach { requestAutomaticDownload(it.id) }
             }
             newEpisodes
         }
@@ -218,7 +229,7 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
         val episodes =
             readableDatabase
                 .rawQuery(
-                    "SELECT $episodePreview FROM episodes WHERE id IN (SELECT id FROM episodes ORDER BY published DESC, rowid DESC LIMIT ?) OR id IN (SELECT episode_id FROM queue_entries UNION SELECT id FROM favorites UNION SELECT id FROM downloads) OR id IN (SELECT id FROM listening_history ORDER BY listened DESC, rowid DESC LIMIT " +
+                    "SELECT $episodePreview FROM episodes WHERE id IN (SELECT id FROM episodes ORDER BY published DESC, rowid DESC LIMIT ?) OR id IN (SELECT episode_id FROM queue_entries UNION SELECT id FROM favorites UNION SELECT id FROM downloads UNION SELECT episode_id FROM automatic_downloads) OR id IN (SELECT id FROM listening_history ORDER BY listened DESC, rowid DESC LIMIT " +
                         historyLimit.coerceAtLeast(1) +
                         ") OR id = ? ORDER BY published DESC, rowid DESC",
                     arrayOf(limit.coerceAtLeast(1).toString(), currentId.orEmpty()),
@@ -388,27 +399,39 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
         }
     }
 
-    fun saveDownload(id: String, managerId: Long): Unit {
-        writableDatabase.insertWithOnConflict(
-            "downloads",
-            null,
+    fun saveDownload(id: String, managerId: Long, unmetered: Boolean = false, error: String = ""): Unit {
+        writableDatabase.replaceOrThrow(
+            "downloads", null,
             ContentValues().apply {
                 put("id", id)
                 put("manager_id", managerId)
+                put("unmetered", unmetered)
+                put("error", error)
             },
-            SQLiteDatabase.CONFLICT_REPLACE,
         )
     }
 
     fun downloadId(id: String): Long? =
         readableDatabase
-            .rawQuery("SELECT manager_id FROM downloads WHERE id = ?", arrayOf(id))
+            .rawQuery("SELECT manager_id FROM downloads WHERE id = ? AND manager_id >= 0", arrayOf(id))
             .use { c -> if (c.moveToFirst()) c.getLong(0) else null }
 
     fun downloadIds(): Map<String, Long> =
         readableDatabase.rawQuery("SELECT * FROM downloads ORDER BY rowid", null).use { c ->
             buildMap { while (c.moveToNext()) put(c.string("id"), c.long("manager_id")) }
         }
+
+    internal fun downloadRecords(): Map<String, DownloadRecord> =
+        readableDatabase.rawQuery("SELECT * FROM downloads ORDER BY rowid", null).use { cursor ->
+            buildMap {
+                while (cursor.moveToNext()) {
+                    put(cursor.string("id"), DownloadRecord(cursor.long("manager_id"),
+                        cursor.long("unmetered") != 0L, cursor.string("error")))
+                }
+            }
+        }
+
+    internal data class DownloadRecord(val managerId: Long, val unmetered: Boolean, val error: String)
 
     fun removeDownload(id: String): Unit {
         writableDatabase.delete("downloads", "id = ?", arrayOf(id))
@@ -461,6 +484,26 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
 
     fun clearQueue(id: String): Unit {
         writableDatabase.delete("queue_entries", "queue_id = ?", arrayOf(id))
+    }
+
+    internal fun feedCleanupEpisodeIds(feedUrl: String): List<String> =
+        readableDatabase.rawQuery(
+            """
+            SELECT id FROM episodes WHERE feed = ? AND id IN (
+                SELECT episode_id FROM queue_entries
+                UNION ALL SELECT id FROM downloads
+                UNION ALL SELECT episode_id FROM automatic_downloads
+            )
+            """.trimIndent(),
+            arrayOf(feedUrl),
+        ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
+
+    internal fun clearFeedQueueEntries(feedUrl: String): Unit {
+        writableDatabase.delete(
+            "queue_entries",
+            "episode_id IN (SELECT id FROM episodes WHERE feed = ?)",
+            arrayOf(feedUrl),
+        )
     }
 
     fun addToQueue(queueId: String, episodeId: String): Boolean {
@@ -592,7 +635,7 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
         )
     }
 
-    private fun autoDownloadFeeds(): Set<String> =
+    internal fun autoDownloadFeeds(): Set<String> =
         readableDatabase
             .rawQuery("SELECT feed FROM podcast_options WHERE auto_download = 1", null)
             .use { c -> buildSet { while (c.moveToNext()) add(c.string("feed")) } }
@@ -611,9 +654,8 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
             .rawQuery("SELECT episode_id FROM automatic_downloads ORDER BY rowid", null)
             .use { c -> buildList { while (c.moveToNext()) add(c.string("episode_id")) } }
 
-    fun cancelAutomaticDownload(id: String): Unit {
-        writableDatabase.delete("automatic_downloads", "episode_id = ?", arrayOf(id))
-    }
+    fun cancelAutomaticDownload(id: String): Boolean =
+        writableDatabase.delete("automatic_downloads", "episode_id = ?", arrayOf(id)) > 0
 
     fun needsBackgroundSync(): Boolean =
         rules().any { it.enabled } ||
@@ -679,7 +721,11 @@ class PodcastStore(context: Context, databaseName: String = "podcasts.db") :
         )
     }
 
-    private fun feedUpdates(): Map<String, FeedUpdateStatus> =
+    internal fun lastFeedCheck(feedUrl: String): Long =
+        readableDatabase.rawQuery("SELECT checked FROM feed_updates WHERE feed = ?", arrayOf(feedUrl))
+            .use { if (it.moveToFirst()) it.getLong(0) else 0L }
+
+    internal fun feedUpdates(): Map<String, FeedUpdateStatus> =
         readableDatabase
             .rawQuery("SELECT feed, checked, updated, error FROM feed_updates", null)
             .use { c ->

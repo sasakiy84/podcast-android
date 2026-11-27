@@ -10,7 +10,12 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import kotlinx.coroutines.CoroutineScope
@@ -28,7 +33,9 @@ class PlaybackService : MediaSessionService() {
     private var skipController: PlaybackSkipController? = null
     private var ticker: kotlinx.coroutines.Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val repository: PodcastRepository get() = (application as PodcastApplication).repository
+    private val podcastApplication: PodcastApplication get() = application as PodcastApplication
+    private val repository: PodcastRepository get() = podcastApplication.repository
+    private val mobileDataPlayback: MobileDataPlayback get() = podcastApplication.mobileDataPlayback
     private val normalizationListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "normalize_volume") session?.player?.let(::updateAudioOffload)
     }
@@ -37,7 +44,18 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         setMediaNotificationProvider(androidx.media3.session.DefaultMediaNotificationProvider(this).apply { setSmallIcon(R.drawable.ic_podcast) })
         val renderers = NormalizingRenderersFactory(this, repository.loudnessProfiles)
-        val player = ExoPlayer.Builder(this, renderers).setSeekBackIncrementMs(15_000).setSeekForwardIncrementMs(30_000).build().apply {
+        val audioDataSource = ResolvingDataSource.Factory(DefaultDataSource.Factory(this)) { spec ->
+            if (mobileDataPlayback.requiresConfirmation(spec.uri)) throw MobileDataPlaybackBlocked(spec.uri)
+            spec
+        }
+        val mediaSource = DefaultMediaSourceFactory(this).setDataSourceFactory(audioDataSource)
+            .setLoadErrorHandlingPolicy(object : DefaultLoadErrorHandlingPolicy() {
+                override fun getRetryDelayMsFor(info: LoadErrorHandlingPolicy.LoadErrorInfo): Long =
+                    if (info.exception is MobileDataPlaybackBlocked) C.TIME_UNSET
+                    else super.getRetryDelayMsFor(info)
+            })
+        val player = ExoPlayer.Builder(this, renderers).setMediaSourceFactory(mediaSource)
+            .setSeekBackIncrementMs(15_000).setSeekForwardIncrementMs(30_000).build().apply {
             updateAudioOffload(this)
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build(), true)
             setHandleAudioBecomingNoisy(true)
@@ -55,9 +73,24 @@ class PlaybackService : MediaSessionService() {
             }
             override fun onPlaybackStateChanged(playbackState: Int): Unit { persist(player) }
             override fun onPlayerError(error: PlaybackException): Unit {
+                val blocked = generateSequence(error.cause) { it.cause }
+                    .filterIsInstance<MobileDataPlaybackBlocked>().firstOrNull()
+                if (blocked != null) {
+                    val item = player.currentMediaItem
+                    if (item?.localConfiguration?.uri != blocked.uri || !player.playWhenReady) return
+                    // A queue item may have been prepared before the device switched networks.
+                    if (mobileDataPlayback.requiresConfirmation(blocked.uri)) {
+                        player.pause()
+                        mobileDataPlayback.ask(item.mediaId, item.mediaMetadata.title?.toString().orEmpty(), blocked.uri)
+                    } else player.prepare()
+                    return
+                }
+                player.pause()
+                podcastApplication.playbackErrors.tryEmit(Unit)
                 if (repository.preferences.contains("active_queue")) scope.launch { repository.load() }
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int): Unit {
+                mobileDataPlayback.onEpisodeChanged(mediaItem?.mediaId, mediaItem?.localConfiguration?.uri)
                 repository.preferences.edit { putString("current", mediaItem?.mediaId) }
             }
             override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int): Unit {
@@ -74,11 +107,14 @@ class PlaybackService : MediaSessionService() {
             repository.store.episode(id)?.let { episode ->
                 val active = repository.preferences.getString("active_queue", null)?.let { queueId -> repository.store.queues().firstOrNull { it.id == queueId } }
                 val queued = active?.episodeIds?.mapNotNull(repository.store::episode).orEmpty()
-                if (queued.isNotEmpty()) {
-                    val index = queued.indexOfFirst { it.id == id }.coerceAtLeast(0)
-                    val progress = repository.store.progress(queued[index].id)
-                    player.setMediaItems(queued.map { it.mediaItem(repository) }, index, if (progress.completed) 0 else progress.positionMs)
-                } else player.setMediaItem(episode.mediaItem(repository), repository.store.progress(id).let { if (it.completed) 0 else it.positionMs })
+                val queueIndex = queued.indexOfFirst { it.id == id }
+                val restored = if (queueIndex >= 0) queued else listOf(episode) + queued
+                val progress = repository.store.progress(id)
+                player.setMediaItems(
+                    restored.map { it.mediaItem(repository) },
+                    queueIndex.coerceAtLeast(0),
+                    if (progress.completed) 0 else progress.positionMs,
+                )
             }
         }
         queueSync = scope.launch {
@@ -132,11 +168,8 @@ class PlaybackService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
-    override fun onTaskRemoved(rootIntent: Intent?): Unit {
-        if (session?.player?.playWhenReady != true) stopSelf()
-    }
-
     override fun onDestroy(): Unit {
+        mobileDataPlayback.reset()
         repository.settings.unlisten(normalizationListener)
         skipController?.close()
         skipController = null

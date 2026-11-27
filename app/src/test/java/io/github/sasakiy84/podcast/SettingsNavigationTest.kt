@@ -48,6 +48,14 @@ class SettingsNavigationTest {
         assertTrue(compose.activity.isFinishing)
     }
 
+    @Test
+    fun mobilePlaybackWarningIsEnabledByDefaultAndCanBeTurnedOff(): Unit {
+        val label = "モバイルデータ通信での再生を確認"
+        compose.onNodeWithText(label).assertIsOn().performClick()
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithText(label).assertIsOff()
+    }
+
     @Test fun normalizationOptionsPersistAndApplyAcrossSettingsRecreation(): Unit {
         val settings = (org.robolectric.RuntimeEnvironment.getApplication() as PodcastApplication).repository.settings
         compose.onNodeWithText("音量をそろえる").performScrollTo().assertIsOn()

@@ -14,10 +14,14 @@ data class PlaybackUi(
 
 data class PodcastUiState(
     val defaultQueueId: String = "default",
-    val wifiOnly: Boolean = false,
+    val wifiOnly: Boolean = true,
+    val warnOnMobilePlayback: Boolean = true,
+    val autoDownloadChargingOnly: Boolean = false,
+    val autoDownloadRequireStorage: Boolean = true,
+    val autoDownloadLimit: Int = 2,
     val normalizeVolume: Boolean = true,
     val louderVolume: Boolean = false,
-    val refreshHours: Int = 1,
+    val refreshHours: Int = DEFAULT_REFRESH_HOURS,
     val library: Library = Library(),
     val results: List<PodcastCandidate> = emptyList(),
     val searching: Boolean = false,
@@ -40,6 +44,7 @@ data class PodcastUiState(
     val busyFeeds: Set<String> = emptySet(),
     val message: String? = null,
     val playback: PlaybackUi = PlaybackUi(),
+    val mobileDataPlaybackRequest: MobileDataPlaybackRequest? = null,
     val episodeSearch: EpisodeSearchState = EpisodeSearchState(),
     val undo: UndoNotice? = null,
     val management: LibraryManagement? = null,
@@ -77,6 +82,16 @@ sealed interface PodcastAction {
 
     data class WifiOnly(val enabled: Boolean) : PodcastAction
 
+    data class WarnOnMobilePlayback(val enabled: Boolean) : PodcastAction
+
+    data class RespondToMobilePlayback(val requestId: Long, val allow: Boolean) : PodcastAction
+
+    data class AutoDownloadChargingOnly(val enabled: Boolean) : PodcastAction
+
+    data class AutoDownloadRequireStorage(val enabled: Boolean) : PodcastAction
+
+    data class AutoDownloadLimit(val count: Int) : PodcastAction
+
     data class NormalizeVolume(val enabled: Boolean) : PodcastAction
 
     data class LouderVolume(val enabled: Boolean) : PodcastAction
@@ -108,6 +123,8 @@ sealed interface PodcastAction {
 
     data class ClearQueueAndDownloads(val id: String) : PodcastAction
 
+    data class ClearFeedAndDownloads(val feedUrl: String) : PodcastAction
+
     data class QueueMembership(val queueId: String, val episodeId: String, val included: Boolean) :
         PodcastAction
 
@@ -122,7 +139,7 @@ sealed interface PodcastAction {
 
     data class PlayQueue(val queueId: String, val episodeId: String? = null) : PodcastAction
 
-    data class Play(val episode: Episode) : PodcastAction
+    data class Play(val episode: Episode, val fromDownloads: Boolean = false) : PodcastAction
 
     data class Seek(val positionMs: Long) : PodcastAction
 
@@ -144,7 +161,8 @@ sealed interface PodcastAction {
 
     data class LoadChapters(val episodeId: String, val retry: Boolean = false) : PodcastAction
 
-    data class PlayChapter(val episode: Episode, val positionMs: Long) : PodcastAction
+    data class PlayChapter(val episode: Episode, val positionMs: Long, val fromDownloads: Boolean = false) :
+        PodcastAction
 
     data object LoadMoreHistory : PodcastAction
 
